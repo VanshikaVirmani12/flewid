@@ -5,9 +5,25 @@ import { AWSService } from '../services/AWSService'
 const router = Router()
 const awsService = new AWSService()
 
+// GET /api/aws/health - AWS service health check
+router.get('/health', asyncHandler(async (req, res) => {
+  res.json({
+    status: 'ok',
+    localMode: process.env.AWS_USE_LOCAL_CREDENTIALS === 'true',
+    region: process.env.AWS_REGION || 'us-east-1',
+    timestamp: new Date().toISOString()
+  })
+}))
+
 // POST /api/aws/cloudwatch/query - Query CloudWatch logs
 router.post('/cloudwatch/query', asyncHandler(async (req, res) => {
   const result = await awsService.queryCloudWatchLogs(req.body)
+  res.json(result)
+}))
+
+// GET /api/aws/cloudwatch/log-groups - List available log groups
+router.get('/cloudwatch/log-groups', asyncHandler(async (req, res) => {
+  const result = await awsService.listLogGroups()
   res.json(result)
 }))
 

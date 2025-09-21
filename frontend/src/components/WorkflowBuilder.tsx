@@ -32,14 +32,25 @@ import TransformNode from './nodes/TransformNode'
 
 const { Sider, Content } = Layout
 
-// Define custom node types
-const nodeTypes = {
-  cloudwatch: CloudWatchNode,
-  dynamodb: DynamoDBNode,
-  s3: S3Node,
-  lambda: LambdaNode,
-  condition: ConditionNode,
-  transform: TransformNode,
+// Define custom node types with config update handler
+const createNodeTypes = (
+  onConfigUpdate: (nodeId: string, config: any) => void,
+  onNodeExecute: (result: any) => void
+) => {
+  // Create a stable wrapper component
+  const CloudWatchNodeWrapper = React.memo((props: any) => {
+    console.log('CloudWatchNodeWrapper rendering with props:', props)
+    return <CloudWatchNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
+  return {
+    cloudwatch: CloudWatchNodeWrapper,
+    dynamodb: DynamoDBNode,
+    s3: S3Node,
+    lambda: LambdaNode,
+    condition: ConditionNode,
+    transform: TransformNode,
+  }
 }
 
 const initialNodes: Node[] = [
@@ -63,6 +74,29 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
   const [executionResults, setExecutionResults] = useState<any[]>([])
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
+
+  // Handle node configuration updates
+  const handleNodeConfigUpdate = useCallback((nodeId: string, config: any) => {
+    console.log('WorkflowBuilder - handleNodeConfigUpdate called:', { nodeId, config })
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) =>
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, config } }
+          : node
+      )
+      console.log('WorkflowBuilder - updated nodes:', updatedNodes)
+      return updatedNodes
+    })
+  }, [setNodes])
+
+  // Handle individual node execution results
+  const handleNodeExecute = useCallback((result: any) => {
+    console.log('WorkflowBuilder - handleNodeExecute called:', result)
+    setExecutionResults(prev => [...prev, result])
+  }, [])
+
+  // Create node types with config update handler - memoized to prevent recreation
+  const nodeTypes = React.useMemo(() => createNodeTypes(handleNodeConfigUpdate, handleNodeExecute), [handleNodeConfigUpdate, handleNodeExecute])
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -122,6 +156,92 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+  const executeCloudWatchNode = async (node: Node) => {
+    const config = node.data.config
+    
+    if (!config.logGroup || !config.keyword) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: 'CloudWatch node not properly configured. Please set log group and keyword.',
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+
+    try {
+      const startTime = Date.now()
+      
+      const response = await fetch('/api/aws/cloudwatch/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          accountId: 'dev-account-1',
+          logGroup: config.logGroup,
+          filterPattern: config.keyword,
+          startTime: config.startTime ? new Date(config.startTime).getTime() : Date.now() - 24 * 60 * 60 * 1000,
+          endTime: config.endTime ? new Date(config.endTime).getTime() : Date.now()
+        })
+      })
+
+      const result = await response.json()
+      const duration = Date.now() - startTime
+
+      if (response.ok && result.success) {
+        const events = result.events || []
+        const summary = result.summary || {}
+        
+        let output = `CloudWatch Query Results:\n`
+        output += `Log Group: ${summary.logGroup || config.logGroup}\n`
+        output += `Filter Pattern: ${summary.filterPattern || config.keyword}\n`
+        output += `Time Range: ${summary.timeRange?.start || 'N/A'} to ${summary.timeRange?.end || 'N/A'}\n`
+        output += `Total Events Found: ${events.length}\n\n`
+        
+        if (events.length > 0) {
+          output += `Recent Log Entries:\n`
+          output += `${'='.repeat(50)}\n`
+          events.slice(0, 10).forEach((event: any, index: number) => {
+            output += `[${event.timestamp}] ${event.logStream}\n`
+            output += `${event.message}\n`
+            output += `${'-'.repeat(30)}\n`
+          })
+          
+          if (events.length > 10) {
+            output += `... and ${events.length - 10} more entries\n`
+          }
+        } else {
+          output += `No log entries found matching the filter pattern "${config.keyword}"\n`
+        }
+
+        return {
+          nodeId: node.id,
+          status: 'success' as const,
+          output,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        return {
+          nodeId: node.id,
+          status: 'error' as const,
+          output: `CloudWatch query failed: ${result.message || 'Unknown error'}`,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    } catch (error: any) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: `CloudWatch query error: ${error.message}`,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+  }
+
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
       message.warning('Please add some nodes to execute the workflow')
@@ -132,26 +252,52 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     setExecutionResults([])
 
     try {
-      // TODO: Execute workflow via backend
       console.log('Executing workflow with nodes:', nodes)
       
-      // Mock execution results
-      const mockResults = nodes.map((node, index) => ({
-        nodeId: node.id,
-        status: Math.random() > 0.2 ? 'success' : 'error',
-        output: `Mock output for ${node.data.label}`,
-        duration: Math.floor(Math.random() * 5000) + 1000,
-        timestamp: new Date().toISOString(),
-      }))
+      // Execute nodes sequentially (excluding the start node)
+      const executableNodes = nodes.filter(node => node.id !== 'start')
+      
+      for (const node of executableNodes) {
+        // Add running status
+        setExecutionResults(prev => [...prev, {
+          nodeId: node.id,
+          status: 'running' as const,
+          output: `Executing ${node.data.label}...`,
+          duration: 0,
+          timestamp: new Date().toISOString(),
+        }])
 
-      // Simulate async execution
-      for (let i = 0; i < mockResults.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        setExecutionResults(prev => [...prev, mockResults[i]])
+        let result
+        
+        // Execute based on node type
+        switch (node.type) {
+          case 'cloudwatch':
+            result = await executeCloudWatchNode(node)
+            break
+          default:
+            // Mock execution for other node types
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            result = {
+              nodeId: node.id,
+              status: Math.random() > 0.2 ? 'success' : 'error' as const,
+              output: `Mock output for ${node.data.label}`,
+              duration: Math.floor(Math.random() * 2000) + 500,
+              timestamp: new Date().toISOString(),
+            }
+        }
+
+        // Replace running status with actual result
+        setExecutionResults(prev => 
+          prev.map(r => r.nodeId === node.id && r.status === 'running' ? result : r)
+        )
+
+        // Small delay between nodes
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
 
       message.success('Workflow execution completed!')
     } catch (error) {
+      console.error('Workflow execution error:', error)
       message.error('Workflow execution failed')
     } finally {
       setIsExecuting(false)
@@ -234,7 +380,7 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
               >
                 <Controls />
                 <MiniMap />
-                <Background variant="dots" gap={12} size={1} />
+                <Background variant={'dots' as any} gap={12} size={1} />
               </ReactFlow>
             </div>
           </ReactFlowProvider>

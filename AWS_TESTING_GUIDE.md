@@ -10,12 +10,12 @@ Follow these steps to verify Flowid can fetch data from your AWS account:
 # Make sure both frontend and backend are running
 npm run dev
 
-# Access at: http://localhost:3001
+# Access at: http://localhost:3000
 ```
 
 ## 📝 Step 2: Add Your AWS Account
 
-1. **Navigate to**: http://localhost:3001/accounts
+1. **Navigate to**: http://localhost:3000/accounts
 2. **Click**: "Add AWS Account"
 3. **Fill in** (Local Development Mode):
    - Account Name: `Test Account`
@@ -60,7 +60,7 @@ curl -X GET "http://localhost:5000/api/aws/lambda/functions?accountId=YOUR_ACCOU
 ## 🎯 Step 4: Visual Testing via UI
 
 ### **Method 1: Use the Workflow Builder**
-1. **Go to**: http://localhost:3001/builder
+1. **Go to**: http://localhost:3000/builder
 2. **Drag** a CloudWatch node from the sidebar
 3. **Configure** the node with:
    - Log Group: `/aws/lambda/` (or any log group you have)
@@ -218,17 +218,17 @@ aws sts get-caller-identity
 curl http://localhost:5000/api/health
 
 # 3. Test frontend access
-curl http://localhost:3001
+curl http://localhost:3000
 
 # 4. Test AWS service endpoints
 curl http://localhost:5000/api/aws/health
 ```
 
-## 🏆 Success Indicators
+## � Success Indicators
 
 ✅ **AWS CLI works**: `aws sts get-caller-identity` returns your account info  
 ✅ **Backend running**: Health endpoint returns `{"status": "ok", "localMode": true}`  
-✅ **Frontend accessible**: Can open http://localhost:3001  
+✅ **Frontend accessible**: Can open http://localhost:3000
 ✅ **Account added**: Can add AWS account without errors  
 ✅ **Connection test passes**: "Test" button shows success  
 ✅ **Service calls work**: API endpoints return data (not errors)  
