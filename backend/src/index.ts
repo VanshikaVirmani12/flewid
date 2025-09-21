@@ -7,6 +7,8 @@ import dotenv from 'dotenv'
 import workflowRoutes from './routes/workflows'
 import executionRoutes from './routes/executions'
 import awsRoutes from './routes/aws'
+import accountRoutes from './routes/accounts'
+import testRoutes from './routes/test'
 import { errorHandler } from './middleware/errorHandler'
 import { logger } from './utils/logger'
 
@@ -45,13 +47,16 @@ app.use((req, res, next) => {
 app.use('/api/workflows', workflowRoutes)
 app.use('/api/executions', executionRoutes)
 app.use('/api/aws', awsRoutes)
+app.use('/api/accounts', accountRoutes)
+app.use('/api/test', testRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version || '1.0.0'
+    version: process.env.npm_package_version || '1.0.0',
+    localMode: process.env.AWS_USE_LOCAL_CREDENTIALS === 'true'
   })
 })
 

@@ -5,7 +5,8 @@ import {
   HomeOutlined, 
   BuildOutlined, 
   UserOutlined,
-  PlusOutlined 
+  PlusOutlined,
+  CloudOutlined
 } from '@ant-design/icons'
 
 const { Header: AntHeader } = Layout
@@ -24,6 +25,11 @@ const Header: React.FC = () => {
       key: '/builder',
       icon: <BuildOutlined />,
       label: 'Workflow Builder',
+    },
+    {
+      key: '/accounts',
+      icon: <CloudOutlined />,
+      label: 'AWS Accounts',
     },
   ]
 
