@@ -1,0 +1,147 @@
+import React from 'react'
+import { Typography, Divider } from 'antd'
+import { 
+  CloudOutlined,
+  DatabaseOutlined,
+  InboxOutlined,
+  FunctionOutlined,
+  BranchesOutlined,
+  SwapOutlined
+} from '@ant-design/icons'
+
+const { Title, Text } = Typography
+
+interface NodeItemProps {
+  type: string
+  icon: React.ReactNode
+  title: string
+  description: string
+  color: string
+}
+
+const NodeItem: React.FC<NodeItemProps> = ({ type, icon, title, description, color }) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string) => {
+    event.dataTransfer.setData('application/reactflow', nodeType)
+    event.dataTransfer.effectAllowed = 'move'
+  }
+
+  return (
+    <div
+      className="node-item"
+      onDragStart={(event) => onDragStart(event, type)}
+      draggable
+    >
+      <div className="node-item-icon" style={{ color }}>
+        {icon}
+      </div>
+      <div className="node-item-content">
+        <h4>{title}</h4>
+        <p>{description}</p>
+      </div>
+    </div>
+  )
+}
+
+const NodeSidebar: React.FC = () => {
+  const awsNodes = [
+    {
+      type: 'cloudwatch',
+      icon: <CloudOutlined />,
+      title: 'CloudWatch',
+      description: 'Query logs and metrics',
+      color: '#ff7875'
+    },
+    {
+      type: 'dynamodb',
+      icon: <DatabaseOutlined />,
+      title: 'DynamoDB',
+      description: 'Query database records',
+      color: '#52c41a'
+    },
+    {
+      type: 's3',
+      icon: <InboxOutlined />,
+      title: 'S3',
+      description: 'List and fetch objects',
+      color: '#fa8c16'
+    },
+    {
+      type: 'lambda',
+      icon: <FunctionOutlined />,
+      title: 'Lambda',
+      description: 'Invoke functions',
+      color: '#722ed1'
+    }
+  ]
+
+  const logicNodes = [
+    {
+      type: 'condition',
+      icon: <BranchesOutlined />,
+      title: 'Condition',
+      description: 'Conditional branching',
+      color: '#13c2c2'
+    },
+    {
+      type: 'transform',
+      icon: <SwapOutlined />,
+      title: 'Transform',
+      description: 'Data transformation',
+      color: '#eb2f96'
+    }
+  ]
+
+  return (
+    <div className="node-sidebar">
+      <div className="p-4">
+        <Title level={4}>AWS Services</Title>
+        <Text type="secondary">
+          Drag and drop AWS service nodes to build your workflow
+        </Text>
+      </div>
+
+      <div className="px-4">
+        {awsNodes.map((node) => (
+          <NodeItem
+            key={node.type}
+            type={node.type}
+            icon={node.icon}
+            title={node.title}
+            description={node.description}
+            color={node.color}
+          />
+        ))}
+      </div>
+
+      <Divider />
+
+      <div className="px-4">
+        <Title level={5}>Logic & Control</Title>
+        {logicNodes.map((node) => (
+          <NodeItem
+            key={node.type}
+            type={node.type}
+            icon={node.icon}
+            title={node.title}
+            description={node.description}
+            color={node.color}
+          />
+        ))}
+      </div>
+
+      <Divider />
+
+      <div className="px-4 pb-4">
+        <Title level={5}>Getting Started</Title>
+        <Text type="secondary" className="text-xs">
+          1. Drag nodes from the sidebar to the canvas<br/>
+          2. Connect nodes by dragging from output to input handles<br/>
+          3. Configure each node by clicking on it<br/>
+          4. Save and execute your workflow
+        </Text>
+      </div>
+    </div>
+  )
+}
+
+export default NodeSidebar
