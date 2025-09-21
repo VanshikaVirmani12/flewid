@@ -1,6 +1,6 @@
 import React, { memo } from 'react'
 import { Handle, Position } from 'reactflow'
-import { DatabaseOutlined } from '@ant-design/icons'
+import DynamoDBIcon from '../icons/DynamoDBIcon'
 
 interface DynamoDBNodeData {
   label: string
@@ -22,7 +22,7 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected }) => {
       <Handle type="target" position={Position.Top} />
       
       <div className="aws-node-header">
-        <DatabaseOutlined className="aws-node-icon" />
+        <DynamoDBIcon className="aws-node-icon" size={20} />
         DynamoDB
       </div>
       

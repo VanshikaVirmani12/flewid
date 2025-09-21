@@ -1,13 +1,13 @@
 import React from 'react'
 import { Typography, Divider } from 'antd'
 import { 
-  CloudOutlined,
-  DatabaseOutlined,
-  InboxOutlined,
-  FunctionOutlined,
   BranchesOutlined,
   SwapOutlined
 } from '@ant-design/icons'
+import CloudWatchIcon from './icons/CloudWatchIcon'
+import DynamoDBIcon from './icons/DynamoDBIcon'
+import S3Icon from './icons/S3Icon'
+import LambdaIcon from './icons/LambdaIcon'
 
 const { Title, Text } = Typography
 
@@ -46,31 +46,31 @@ const NodeSidebar: React.FC = () => {
   const awsNodes = [
     {
       type: 'cloudwatch',
-      icon: <CloudOutlined />,
+      icon: <CloudWatchIcon size={20} />,
       title: 'CloudWatch',
       description: 'Query logs and metrics',
-      color: '#ff7875'
+      color: 'inherit'
     },
     {
       type: 'dynamodb',
-      icon: <DatabaseOutlined />,
+      icon: <DynamoDBIcon size={20} />,
       title: 'DynamoDB',
       description: 'Query database records',
-      color: '#52c41a'
+      color: 'inherit'
     },
     {
       type: 's3',
-      icon: <InboxOutlined />,
+      icon: <S3Icon size={20} />,
       title: 'S3',
       description: 'List and fetch objects',
-      color: '#fa8c16'
+      color: 'inherit'
     },
     {
       type: 'lambda',
-      icon: <FunctionOutlined />,
+      icon: <LambdaIcon size={20} />,
       title: 'Lambda',
       description: 'Invoke functions',
-      color: '#722ed1'
+      color: 'inherit'
     }
   ]
 

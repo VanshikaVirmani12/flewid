@@ -1,8 +1,9 @@
 import React, { memo, useState, useCallback } from 'react'
 import { Handle, Position } from 'reactflow'
-import { CloudOutlined, SettingOutlined } from '@ant-design/icons'
+import { SettingOutlined } from '@ant-design/icons'
 import { Modal, Form, Input, DatePicker, Button, Space, message } from 'antd'
 import dayjs from 'dayjs'
+import CloudWatchIcon from '../icons/CloudWatchIcon'
 
 const { RangePicker } = DatePicker
 
@@ -198,7 +199,7 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         <Handle type="target" position={Position.Top} />
         
         <div className="aws-node-header">
-          <CloudOutlined className="aws-node-icon" />
+          <CloudWatchIcon className="aws-node-icon" size={20} />
           <span>CloudWatch</span>
           <Button
             type="text"

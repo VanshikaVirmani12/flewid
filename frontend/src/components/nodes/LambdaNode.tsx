@@ -1,6 +1,6 @@
 import React, { memo } from 'react'
 import { Handle, Position } from 'reactflow'
-import { FunctionOutlined } from '@ant-design/icons'
+import LambdaIcon from '../icons/LambdaIcon'
 
 interface LambdaNodeData {
   label: string
@@ -22,7 +22,7 @@ const LambdaNode: React.FC<LambdaNodeProps> = memo(({ data, selected }) => {
       <Handle type="target" position={Position.Top} />
       
       <div className="aws-node-header">
-        <FunctionOutlined className="aws-node-icon" />
+        <LambdaIcon className="aws-node-icon" size={20} />
         Lambda
       </div>
       

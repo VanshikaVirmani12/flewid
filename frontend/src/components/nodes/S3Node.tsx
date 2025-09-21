@@ -1,6 +1,6 @@
 import React, { memo } from 'react'
 import { Handle, Position } from 'reactflow'
-import { InboxOutlined } from '@ant-design/icons'
+import S3Icon from '../icons/S3Icon'
 
 interface S3NodeData {
   label: string
@@ -22,7 +22,7 @@ const S3Node: React.FC<S3NodeProps> = memo(({ data, selected }) => {
       <Handle type="target" position={Position.Top} />
       
       <div className="aws-node-header">
-        <InboxOutlined className="aws-node-icon" />
+        <S3Icon className="aws-node-icon" size={20} />
         S3
       </div>
       
