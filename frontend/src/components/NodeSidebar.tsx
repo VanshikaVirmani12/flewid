@@ -8,6 +8,7 @@ import CloudWatchIcon from './icons/CloudWatchIcon'
 import DynamoDBIcon from './icons/DynamoDBIcon'
 import S3Icon from './icons/S3Icon'
 import LambdaIcon from './icons/LambdaIcon'
+import EMRIcon from './icons/EMRIcon'
 
 const { Title, Text } = Typography
 
@@ -70,6 +71,13 @@ const NodeSidebar: React.FC = () => {
       icon: <LambdaIcon size={20} />,
       title: 'Lambda',
       description: 'Invoke functions',
+      color: 'inherit'
+    },
+    {
+      type: 'emr',
+      icon: <EMRIcon size={20} />,
+      title: 'EMR',
+      description: 'Run big data workloads',
       color: 'inherit'
     }
   ]

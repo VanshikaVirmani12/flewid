@@ -27,6 +27,7 @@ import CloudWatchNode from './nodes/CloudWatchNode'
 import DynamoDBNode from './nodes/DynamoDBNode'
 import S3Node from './nodes/S3Node'
 import LambdaNode from './nodes/LambdaNode'
+import EMRNode from './nodes/EMRNode'
 import ConditionNode from './nodes/ConditionNode'
 import TransformNode from './nodes/TransformNode'
 
@@ -37,10 +38,13 @@ const createNodeTypes = (
   onConfigUpdate: (nodeId: string, config: any) => void,
   onNodeExecute: (result: any) => void
 ) => {
-  // Create a stable wrapper component
+  // Create stable wrapper components
   const CloudWatchNodeWrapper = React.memo((props: any) => {
-    console.log('CloudWatchNodeWrapper rendering with props:', props)
     return <CloudWatchNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
+  const EMRNodeWrapper = React.memo((props: any) => {
+    return <EMRNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
   })
   
   return {
@@ -48,6 +52,7 @@ const createNodeTypes = (
     dynamodb: DynamoDBNode,
     s3: S3Node,
     lambda: LambdaNode,
+    emr: EMRNodeWrapper,
     condition: ConditionNode,
     transform: TransformNode,
   }
@@ -77,21 +82,18 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
 
   // Handle node configuration updates
   const handleNodeConfigUpdate = useCallback((nodeId: string, config: any) => {
-    console.log('WorkflowBuilder - handleNodeConfigUpdate called:', { nodeId, config })
     setNodes((nds) => {
       const updatedNodes = nds.map((node) =>
         node.id === nodeId
           ? { ...node, data: { ...node.data, config } }
           : node
       )
-      console.log('WorkflowBuilder - updated nodes:', updatedNodes)
       return updatedNodes
     })
   }, [setNodes])
 
   // Handle individual node execution results
   const handleNodeExecute = useCallback((result: any) => {
-    console.log('WorkflowBuilder - handleNodeExecute called:', result)
     setExecutionResults(prev => [...prev, result])
   }, [])
 
@@ -141,15 +143,14 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
 
   const handleSaveWorkflow = async () => {
     try {
-      const workflow = {
-        name: workflowName,
-        nodes,
-        edges,
-        updatedAt: new Date().toISOString(),
-      }
-      
       // TODO: Save to backend
-      console.log('Saving workflow:', workflow)
+      // const workflow = {
+      //   name: workflowName,
+      //   nodes,
+      //   edges,
+      //   updatedAt: new Date().toISOString(),
+      // }
+      
       message.success('Workflow saved successfully!')
     } catch (error) {
       message.error('Failed to save workflow')
@@ -202,7 +203,7 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
         if (events.length > 0) {
           output += `Recent Log Entries:\n`
           output += `${'='.repeat(50)}\n`
-          events.slice(0, 10).forEach((event: any, index: number) => {
+          events.slice(0, 10).forEach((event: any) => {
             output += `[${event.timestamp}] ${event.logStream}\n`
             output += `${event.message}\n`
             output += `${'-'.repeat(30)}\n`
@@ -242,6 +243,144 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+  const executeEMRNode = async (node: Node) => {
+    const config = node.data.config
+    
+    if (!config.operation) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: 'EMR node not properly configured. Please set operation.',
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+
+    try {
+      const startTime = Date.now()
+      
+      let requestBody: any = {
+        accountId: 'dev-account-1',
+        operation: config.operation
+      }
+
+      // Add operation-specific parameters
+      if (config.operation === 'listClusters') {
+        if (config.clusterId) {
+          requestBody.clusterId = config.clusterId
+        }
+        if (config.clusterName) {
+          requestBody.clusterName = config.clusterName
+        }
+      } else if (config.operation === 'describeCluster') {
+        if (!config.clusterId) {
+          return {
+            nodeId: node.id,
+            status: 'error' as const,
+            output: 'Cluster ID is required for describe operation',
+            duration: 0,
+            timestamp: new Date().toISOString(),
+          }
+        }
+        requestBody.clusterId = config.clusterId
+      } else if (config.operation === 'addStep') {
+        if (!config.clusterId || !config.stepName) {
+          return {
+            nodeId: node.id,
+            status: 'error' as const,
+            output: 'Cluster ID and Step Name are required for add step operation',
+            duration: 0,
+            timestamp: new Date().toISOString(),
+          }
+        }
+        requestBody.clusterId = config.clusterId
+        requestBody.stepName = config.stepName
+        requestBody.jarPath = config.jarPath
+        requestBody.mainClass = config.mainClass
+        requestBody.arguments = config.arguments
+      }
+      
+      const response = await fetch('/api/aws/emr/clusters', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+      const duration = Date.now() - startTime
+
+      if (response.ok && result.success) {
+        let output = `EMR ${config.operation} Results:\n`
+        
+        if (config.operation === 'listClusters') {
+          const clusters = result.clusters || []
+          output += `Total Clusters Found: ${clusters.length}\n\n`
+          
+          if (clusters.length > 0) {
+            output += `Cluster Details:\n`
+            output += `${'='.repeat(50)}\n`
+            clusters.forEach((cluster: any) => {
+              output += `Name: ${cluster.name || 'N/A'}\n`
+              output += `ID: ${cluster.id || 'N/A'}\n`
+              output += `State: ${cluster.state || 'N/A'}\n`
+              output += `Created: ${cluster.creationDateTime || 'N/A'}\n`
+              output += `${'-'.repeat(30)}\n`
+            })
+          } else {
+            output += `No clusters found`
+            if (config.clusterId || config.clusterName) {
+              output += ` matching the specified criteria`
+            }
+            output += `\n`
+          }
+        } else if (config.operation === 'describeCluster') {
+          const cluster = result.cluster
+          if (cluster) {
+            output += `Cluster Name: ${cluster.name || 'N/A'}\n`
+            output += `Cluster ID: ${cluster.id || 'N/A'}\n`
+            output += `State: ${cluster.state || 'N/A'}\n`
+            output += `Status: ${cluster.status?.state || 'N/A'}\n`
+            output += `Created: ${cluster.status?.timeline?.creationDateTime || 'N/A'}\n`
+            output += `Ready: ${cluster.status?.timeline?.readyDateTime || 'N/A'}\n`
+            output += `Instance Count: ${cluster.instanceCollectionType || 'N/A'}\n`
+            output += `Applications: ${cluster.applications?.map((app: any) => app.name).join(', ') || 'N/A'}\n`
+          }
+        } else if (config.operation === 'addStep') {
+          output += `Step Added Successfully\n`
+          output += `Step ID: ${result.stepId || 'N/A'}\n`
+          output += `Cluster ID: ${config.clusterId}\n`
+          output += `Step Name: ${config.stepName}\n`
+        }
+
+        return {
+          nodeId: node.id,
+          status: 'success' as const,
+          output,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        return {
+          nodeId: node.id,
+          status: 'error' as const,
+          output: `EMR ${config.operation} failed: ${result.message || 'Unknown error'}`,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    } catch (error: any) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: `EMR operation error: ${error.message}`,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+  }
+
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
       message.warning('Please add some nodes to execute the workflow')
@@ -252,8 +391,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     setExecutionResults([])
 
     try {
-      console.log('Executing workflow with nodes:', nodes)
-      
       // Execute nodes sequentially (excluding the start node)
       const executableNodes = nodes.filter(node => node.id !== 'start')
       
@@ -273,6 +410,9 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
         switch (node.type) {
           case 'cloudwatch':
             result = await executeCloudWatchNode(node)
+            break
+          case 'emr':
+            result = await executeEMRNode(node)
             break
           default:
             // Mock execution for other node types
@@ -297,7 +437,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
 
       message.success('Workflow execution completed!')
     } catch (error) {
-      console.error('Workflow execution error:', error)
       message.error('Workflow execution failed')
     } finally {
       setIsExecuting(false)

@@ -57,4 +57,47 @@ router.get('/regions', asyncHandler(async (req, res) => {
   res.json(regions)
 }))
 
+// POST /api/aws/emr/clusters - Handle EMR operations
+router.post('/emr/clusters', asyncHandler(async (req, res) => {
+  const { operation, ...params } = req.body
+  
+  let result
+  switch (operation) {
+    case 'listClusters':
+      result = await awsService.listEMRClusters(params)
+      break
+    case 'describeCluster':
+      result = await awsService.describeEMRCluster(params)
+      break
+    case 'addStep':
+      result = await awsService.addEMRSteps(params)
+      break
+    default:
+      return res.status(400).json({
+        success: false,
+        message: `Unknown EMR operation: ${operation}`
+      })
+  }
+  
+  res.json(result)
+}))
+
+// POST /api/aws/emr/cluster/describe - Describe EMR cluster
+router.post('/emr/cluster/describe', asyncHandler(async (req, res) => {
+  const result = await awsService.describeEMRCluster(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/emr/steps/add - Add steps to EMR cluster
+router.post('/emr/steps/add', asyncHandler(async (req, res) => {
+  const result = await awsService.addEMRSteps(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/emr/steps/list - List EMR steps
+router.post('/emr/steps/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listEMRSteps(req.body)
+  res.json(result)
+}))
+
 export default router

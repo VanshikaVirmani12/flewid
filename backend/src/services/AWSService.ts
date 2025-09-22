@@ -2,6 +2,7 @@ import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogGroupsCommand 
 import { DynamoDBClient, QueryCommand, GetItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb'
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
 import { LambdaClient, InvokeCommand, GetFunctionCommand } from '@aws-sdk/client-lambda'
+import { EMRClient, ListClustersCommand, DescribeClusterCommand, AddJobFlowStepsCommand, ListStepsCommand, DescribeStepCommand, ClusterState, StepState, ActionOnFailure } from '@aws-sdk/client-emr'
 import { logger } from '../utils/logger'
 import { createError } from '../middleware/errorHandler'
 import { AWSCredentialService, AWSCredentials, AWSAccount } from './AWSCredentialService'
@@ -341,6 +342,484 @@ export class AWSService {
         { code: 'eu-west-1', name: 'Europe (Ireland)' },
         { code: 'ap-southeast-1', name: 'Asia Pacific (Singapore)' }
       ]
+    }
+  }
+
+  /**
+   * List EMR clusters
+   */
+  async listEMRClusters(params: {
+    accountId: string
+    states?: string[]
+    clusterId?: string
+    clusterName?: string
+  }): Promise<any> {
+    logger.info('Listing EMR clusters', { 
+      accountId: params.accountId,
+      states: params.states
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create EMR client with local credentials
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // List clusters
+        const command = new ListClustersCommand({
+          ClusterStates: (params.states as ClusterState[]) || [ClusterState.STARTING, ClusterState.BOOTSTRAPPING, ClusterState.RUNNING, ClusterState.WAITING]
+        })
+
+        const response = await client.send(command)
+        
+        let clusters = response.Clusters?.map(cluster => ({
+          id: cluster.Id,
+          name: cluster.Name,
+          state: cluster.Status?.State,
+          stateChangeReason: cluster.Status?.StateChangeReason?.Message,
+          creationDateTime: cluster.Status?.Timeline?.CreationDateTime?.toISOString(),
+          readyDateTime: cluster.Status?.Timeline?.ReadyDateTime?.toISOString(),
+          normalizedInstanceHours: cluster.NormalizedInstanceHours
+        })) || []
+
+        // Filter by cluster ID if provided
+        if (params.clusterId) {
+          clusters = clusters.filter(cluster => 
+            cluster.id?.toLowerCase().includes(params.clusterId!.toLowerCase())
+          )
+        }
+
+        // Filter by cluster name if provided
+        if (params.clusterName) {
+          clusters = clusters.filter(cluster => 
+            cluster.name?.toLowerCase().includes(params.clusterName!.toLowerCase())
+          )
+        }
+
+        logger.info('EMR clusters listed', {
+          accountId: params.accountId,
+          count: clusters.length,
+          filteredBy: {
+            clusterId: params.clusterId,
+            clusterName: params.clusterName
+          }
+        })
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:ListClusters', true)
+
+        return {
+          success: true,
+          clusters,
+          count: clusters.length,
+          filters: {
+            clusterId: params.clusterId,
+            clusterName: params.clusterName,
+            states: params.states
+          }
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create EMR client
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // List clusters
+        const command = new ListClustersCommand({
+          ClusterStates: (params.states as ClusterState[]) || [ClusterState.STARTING, ClusterState.BOOTSTRAPPING, ClusterState.RUNNING, ClusterState.WAITING]
+        })
+
+        const response = await client.send(command)
+        
+        let clusters = response.Clusters?.map(cluster => ({
+          id: cluster.Id,
+          name: cluster.Name,
+          state: cluster.Status?.State,
+          stateChangeReason: cluster.Status?.StateChangeReason?.Message,
+          creationDateTime: cluster.Status?.Timeline?.CreationDateTime?.toISOString(),
+          readyDateTime: cluster.Status?.Timeline?.ReadyDateTime?.toISOString(),
+          normalizedInstanceHours: cluster.NormalizedInstanceHours
+        })) || []
+
+        // Filter by cluster ID if provided
+        if (params.clusterId) {
+          clusters = clusters.filter(cluster => 
+            cluster.id?.toLowerCase().includes(params.clusterId!.toLowerCase())
+          )
+        }
+
+        // Filter by cluster name if provided
+        if (params.clusterName) {
+          clusters = clusters.filter(cluster => 
+            cluster.name?.toLowerCase().includes(params.clusterName!.toLowerCase())
+          )
+        }
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:ListClusters', true)
+
+        return {
+          success: true,
+          clusters,
+          count: clusters.length,
+          filters: {
+            clusterId: params.clusterId,
+            clusterName: params.clusterName,
+            states: params.states
+          }
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'emr:ListClusters', false)
+      logger.error('Failed to list EMR clusters', { 
+        accountId: params.accountId,
+        error: error.message
+      })
+      
+      throw createError(`Failed to list EMR clusters: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * Describe EMR cluster
+   */
+  async describeEMRCluster(params: {
+    accountId: string
+    clusterId: string
+  }): Promise<any> {
+    logger.info('Describing EMR cluster', { 
+      accountId: params.accountId,
+      clusterId: params.clusterId
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create EMR client with local credentials
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Describe cluster
+        const command = new DescribeClusterCommand({
+          ClusterId: params.clusterId
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:DescribeCluster', true)
+
+        const cluster = response.Cluster
+        if (!cluster) {
+          throw createError(`Cluster ${params.clusterId} not found`, 404)
+        }
+
+        return {
+          success: true,
+          cluster: {
+            id: cluster.Id,
+            name: cluster.Name,
+            state: cluster.Status?.State,
+            stateChangeReason: cluster.Status?.StateChangeReason?.Message,
+            creationDateTime: cluster.Status?.Timeline?.CreationDateTime?.toISOString(),
+            readyDateTime: cluster.Status?.Timeline?.ReadyDateTime?.toISOString(),
+            endDateTime: cluster.Status?.Timeline?.EndDateTime?.toISOString(),
+            normalizedInstanceHours: cluster.NormalizedInstanceHours,
+            masterPublicDnsName: cluster.MasterPublicDnsName,
+            applications: cluster.Applications?.map(app => ({
+              name: app.Name,
+              version: app.Version
+            })) || [],
+            ec2InstanceAttributes: {
+              keyName: cluster.Ec2InstanceAttributes?.Ec2KeyName,
+              instanceProfile: cluster.Ec2InstanceAttributes?.IamInstanceProfile,
+              subnetId: cluster.Ec2InstanceAttributes?.Ec2SubnetId
+            }
+          }
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create EMR client
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Describe cluster
+        const command = new DescribeClusterCommand({
+          ClusterId: params.clusterId
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:DescribeCluster', true)
+
+        return {
+          success: true,
+          cluster: response.Cluster
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'emr:DescribeCluster', false)
+      logger.error('Failed to describe EMR cluster', { 
+        accountId: params.accountId,
+        clusterId: params.clusterId,
+        error: error.message
+      })
+      
+      if (error.name === 'InvalidRequestException') {
+        throw createError(`Cluster ${params.clusterId} not found`, 404)
+      }
+      
+      throw createError(`Failed to describe EMR cluster: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * Add job flow steps to EMR cluster
+   */
+  async addEMRSteps(params: {
+    accountId: string
+    clusterId: string
+    steps: Array<{
+      name: string
+      jar: string
+      mainClass?: string
+      args?: string[]
+      actionOnFailure?: string
+    }>
+  }): Promise<any> {
+    logger.info('Adding EMR steps', { 
+      accountId: params.accountId,
+      clusterId: params.clusterId,
+      stepCount: params.steps.length
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create EMR client with local credentials
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Prepare steps
+        const emrSteps = params.steps.map(step => ({
+          Name: step.name,
+          ActionOnFailure: (step.actionOnFailure as ActionOnFailure) || ActionOnFailure.CONTINUE,
+          HadoopJarStep: {
+            Jar: step.jar,
+            MainClass: step.mainClass,
+            Args: step.args || []
+          }
+        }))
+
+        // Add steps
+        const command = new AddJobFlowStepsCommand({
+          JobFlowId: params.clusterId,
+          Steps: emrSteps
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:AddJobFlowSteps', true)
+
+        return {
+          success: true,
+          stepIds: response.StepIds || []
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create EMR client
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Prepare and add steps
+        const emrSteps = params.steps.map(step => ({
+          Name: step.name,
+          ActionOnFailure: (step.actionOnFailure as ActionOnFailure) || ActionOnFailure.CONTINUE,
+          HadoopJarStep: {
+            Jar: step.jar,
+            MainClass: step.mainClass,
+            Args: step.args || []
+          }
+        }))
+
+        const command = new AddJobFlowStepsCommand({
+          JobFlowId: params.clusterId,
+          Steps: emrSteps
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:AddJobFlowSteps', true)
+
+        return {
+          success: true,
+          stepIds: response.StepIds || []
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'emr:AddJobFlowSteps', false)
+      logger.error('Failed to add EMR steps', { 
+        accountId: params.accountId,
+        clusterId: params.clusterId,
+        error: error.message
+      })
+      
+      throw createError(`Failed to add EMR steps: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * List EMR steps for a cluster
+   */
+  async listEMRSteps(params: {
+    accountId: string
+    clusterId: string
+    stepStates?: string[]
+  }): Promise<any> {
+    logger.info('Listing EMR steps', { 
+      accountId: params.accountId,
+      clusterId: params.clusterId,
+      stepStates: params.stepStates
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create EMR client with local credentials
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // List steps
+        const command = new ListStepsCommand({
+          ClusterId: params.clusterId,
+          StepStates: params.stepStates as StepState[]
+        })
+
+        const response = await client.send(command)
+        
+        const steps = response.Steps?.map(step => ({
+          id: step.Id,
+          name: step.Name,
+          state: step.Status?.State,
+          stateChangeReason: step.Status?.StateChangeReason,
+          creationDateTime: step.Status?.Timeline?.CreationDateTime?.toISOString(),
+          startDateTime: step.Status?.Timeline?.StartDateTime?.toISOString(),
+          endDateTime: step.Status?.Timeline?.EndDateTime?.toISOString(),
+          actionOnFailure: step.ActionOnFailure,
+          config: {
+            jar: step.Config?.Jar,
+            mainClass: step.Config?.MainClass,
+            args: step.Config?.Args
+          }
+        })) || []
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:ListSteps', true)
+
+        return {
+          success: true,
+          steps,
+          count: steps.length
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create EMR client
+        const client = new EMRClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // List steps
+        const command = new ListStepsCommand({
+          ClusterId: params.clusterId,
+          StepStates: params.stepStates as StepState[]
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'emr:ListSteps', true)
+
+        return {
+          success: true,
+          steps: response.Steps || []
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'emr:ListSteps', false)
+      logger.error('Failed to list EMR steps', { 
+        accountId: params.accountId,
+        clusterId: params.clusterId,
+        error: error.message
+      })
+      
+      throw createError(`Failed to list EMR steps: ${error.message}`, 500)
     }
   }
 }
