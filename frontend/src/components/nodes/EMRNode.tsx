@@ -1,6 +1,6 @@
 import React, { memo, useState, useCallback } from 'react'
 import { Handle, Position } from 'reactflow'
-import { SettingOutlined } from '@ant-design/icons'
+import { SettingOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { Modal, Form, Input, Select, Button, message, Alert } from 'antd'
 import EMRIcon from '../icons/EMRIcon'
 
@@ -30,8 +30,213 @@ interface EMRNodeProps {
 
 const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpdate, onNodeExecute }) => {
   const [isConfigModalVisible, setIsConfigModalVisible] = useState(false)
+  const [isErrorModalVisible, setIsErrorModalVisible] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const [selectedOperation, setSelectedOperation] = useState('listClusters')
   const [form] = Form.useForm()
+
+  const showErrorModal = useCallback((error: string) => {
+    setErrorMessage(error)
+    setIsErrorModalVisible(true)
+  }, [])
+
+  const handleErrorModalClose = useCallback(() => {
+    setIsErrorModalVisible(false)
+    setErrorMessage('')
+  }, [])
+
+  const validateClusterId = (clusterId: string): { isValid: boolean; error?: string } => {
+    if (!clusterId || clusterId.trim() === '') {
+      return { isValid: false, error: 'Cluster ID cannot be empty.' }
+    }
+
+    const trimmedClusterId = clusterId.trim()
+
+    // EMR cluster IDs follow the format j-XXXXXXXXXXXXX
+    if (!/^j-[A-Z0-9]{13}$/i.test(trimmedClusterId)) {
+      return { 
+        isValid: false, 
+        error: `Invalid EMR cluster ID format. Cluster IDs must follow the pattern: j-XXXXXXXXXXXXX
+
+Examples:
+• j-1234567890ABC
+• j-ABCDEF1234567
+
+Current value: "${trimmedClusterId}"` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateApplicationId = (applicationId: string): { isValid: boolean; error?: string } => {
+    if (!applicationId || applicationId.trim() === '') {
+      return { isValid: false, error: 'Application ID cannot be empty.' }
+    }
+
+    const trimmedApplicationId = applicationId.trim()
+
+    // YARN application IDs follow the format application_XXXXXXXXXXXXX_XXXX
+    if (!/^application_\d{13}_\d{4}$/.test(trimmedApplicationId)) {
+      return { 
+        isValid: false, 
+        error: `Invalid YARN application ID format. Application IDs must follow the pattern: application_XXXXXXXXXXXXX_XXXX
+
+Examples:
+• application_1234567890123_0001
+• application_1640995200000_0042
+
+Current value: "${trimmedApplicationId}"` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateStepName = (stepName: string): { isValid: boolean; error?: string } => {
+    if (!stepName || stepName.trim() === '') {
+      return { isValid: false, error: 'Step name cannot be empty.' }
+    }
+
+    const trimmedStepName = stepName.trim()
+
+    // Check length (reasonable limit for step names)
+    if (trimmedStepName.length > 256) {
+      return { 
+        isValid: false, 
+        error: `Step name is too long. Maximum length is 256 characters.
+
+Current length: ${trimmedStepName.length} characters` 
+      }
+    }
+
+    // Check for invalid characters (basic validation)
+    if (/[<>:"|?*\x00-\x1f]/.test(trimmedStepName)) {
+      return { 
+        isValid: false, 
+        error: `Step name contains invalid characters. Avoid using: < > : " | ? * and control characters.
+
+Current value: "${trimmedStepName}"` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateJarPath = (jarPath: string): { isValid: boolean; error?: string } => {
+    if (!jarPath || jarPath.trim() === '') {
+      return { isValid: true } // JAR path is optional
+    }
+
+    const trimmedJarPath = jarPath.trim()
+
+    // Check if it's a valid S3 path
+    if (!trimmedJarPath.startsWith('s3://')) {
+      return { 
+        isValid: false, 
+        error: `JAR path must be an S3 URL starting with 's3://'.
+
+Examples:
+• s3://my-bucket/jars/my-application.jar
+• s3://emr-code/spark-jobs/data-processor.jar
+
+Current value: "${trimmedJarPath}"` 
+      }
+    }
+
+    // Check if it ends with .jar
+    if (!trimmedJarPath.toLowerCase().endsWith('.jar')) {
+      return { 
+        isValid: false, 
+        error: `JAR path must point to a .jar file.
+
+Current value: "${trimmedJarPath}"` 
+      }
+    }
+
+    // Basic S3 path validation
+    const s3PathMatch = trimmedJarPath.match(/^s3:\/\/([a-z0-9.-]+)\/(.+)$/)
+    if (!s3PathMatch) {
+      return { 
+        isValid: false, 
+        error: `Invalid S3 path format. Must be: s3://bucket-name/path/to/file.jar
+
+Current value: "${trimmedJarPath}"` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateMainClass = (mainClass: string): { isValid: boolean; error?: string } => {
+    if (!mainClass || mainClass.trim() === '') {
+      return { isValid: true } // Main class is optional
+    }
+
+    const trimmedMainClass = mainClass.trim()
+
+    // Check for valid Java class name format
+    if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)*$/.test(trimmedMainClass)) {
+      return { 
+        isValid: false, 
+        error: `Invalid Java class name format. Class names must follow Java naming conventions.
+
+Examples:
+• com.example.MyApplication
+• org.apache.spark.examples.SparkPi
+• MyMainClass
+
+Current value: "${trimmedMainClass}"` 
+      }
+    }
+
+    // Check length
+    if (trimmedMainClass.length > 500) {
+      return { 
+        isValid: false, 
+        error: `Main class name is too long. Maximum length is 500 characters.
+
+Current length: ${trimmedMainClass.length} characters` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateTimestamp = (timestamp: string, fieldName: string): { isValid: boolean; error?: string } => {
+    if (!timestamp || timestamp.trim() === '') {
+      return { isValid: true } // Timestamps are optional
+    }
+
+    const trimmedTimestamp = timestamp.trim()
+
+    // Check if it's a valid number
+    const timestampNumber = parseInt(trimmedTimestamp)
+    if (isNaN(timestampNumber)) {
+      return { 
+        isValid: false, 
+        error: `${fieldName} must be a valid Unix timestamp (number).
+
+Current value: "${trimmedTimestamp}"` 
+      }
+    }
+
+    // Check if it's a reasonable timestamp (not too far in the past or future)
+    const now = Date.now()
+    const oneYearAgo = now - (365 * 24 * 60 * 60 * 1000)
+    const oneYearFromNow = now + (365 * 24 * 60 * 60 * 1000)
+
+    if (timestampNumber < oneYearAgo || timestampNumber > oneYearFromNow) {
+      return { 
+        isValid: false, 
+        error: `${fieldName} seems unreasonable. Please use a Unix timestamp in milliseconds within the last year.
+
+Current value: ${timestampNumber} (${new Date(timestampNumber).toISOString()})` 
+      }
+    }
+
+    return { isValid: true }
+  }
 
   const handleConfigClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -99,6 +304,26 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
             className="mb-4"
           />
         )
+      case 'getYarnApplications':
+        return (
+          <Alert
+            message="Get YARN Applications Operation"
+            description="This will retrieve YARN applications from the Timeline Server. Requires a running cluster with public DNS access. The cluster must have Timeline Server enabled on port 8188."
+            type="info"
+            showIcon
+            className="mb-4"
+          />
+        )
+      case 'getYarnApplicationDetails':
+        return (
+          <Alert
+            message="Get YARN Application Details Operation"
+            description="This will retrieve detailed information about a specific YARN application from the Timeline Server. Requires cluster ID and application ID."
+            type="info"
+            showIcon
+            className="mb-4"
+          />
+        )
       case 'addStep':
         return (
           <Alert
@@ -117,6 +342,78 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
   const handleConfigSave = useCallback(async () => {
     try {
       const values = await form.validateFields()
+      
+      // Validate cluster ID if provided
+      if (values.clusterId) {
+        const clusterIdValidation = validateClusterId(values.clusterId)
+        if (!clusterIdValidation.isValid) {
+          showErrorModal(`Cluster ID Validation Error:\n\n${clusterIdValidation.error}`)
+          return
+        }
+      }
+
+      // Validate application ID if provided (for YARN application details)
+      if (values.applicationId) {
+        const applicationIdValidation = validateApplicationId(values.applicationId)
+        if (!applicationIdValidation.isValid) {
+          showErrorModal(`Application ID Validation Error:\n\n${applicationIdValidation.error}`)
+          return
+        }
+      }
+
+      // Validate step name if provided
+      if (values.stepName) {
+        const stepNameValidation = validateStepName(values.stepName)
+        if (!stepNameValidation.isValid) {
+          showErrorModal(`Step Name Validation Error:\n\n${stepNameValidation.error}`)
+          return
+        }
+      }
+
+      // Validate JAR path if provided
+      if (values.jarPath) {
+        const jarPathValidation = validateJarPath(values.jarPath)
+        if (!jarPathValidation.isValid) {
+          showErrorModal(`JAR Path Validation Error:\n\n${jarPathValidation.error}`)
+          return
+        }
+      }
+
+      // Validate main class if provided
+      if (values.mainClass) {
+        const mainClassValidation = validateMainClass(values.mainClass)
+        if (!mainClassValidation.isValid) {
+          showErrorModal(`Main Class Validation Error:\n\n${mainClassValidation.error}`)
+          return
+        }
+      }
+
+      // Validate timestamps if provided
+      if (values.windowStart) {
+        const windowStartValidation = validateTimestamp(values.windowStart, 'Window Start')
+        if (!windowStartValidation.isValid) {
+          showErrorModal(`Window Start Validation Error:\n\n${windowStartValidation.error}`)
+          return
+        }
+      }
+
+      if (values.windowEnd) {
+        const windowEndValidation = validateTimestamp(values.windowEnd, 'Window End')
+        if (!windowEndValidation.isValid) {
+          showErrorModal(`Window End Validation Error:\n\n${windowEndValidation.error}`)
+          return
+        }
+      }
+
+      // Validate window start is before window end
+      if (values.windowStart && values.windowEnd) {
+        const startTime = parseInt(values.windowStart)
+        const endTime = parseInt(values.windowEnd)
+        if (!isNaN(startTime) && !isNaN(endTime) && startTime >= endTime) {
+          showErrorModal('Time Window Validation Error:\n\nWindow Start time must be before Window End time.')
+          return
+        }
+      }
       
       // Update node data with new configuration
       const newConfig = {
@@ -137,12 +434,18 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
       setIsConfigModalVisible(false)
       message.success('EMR configuration updated')
     } catch (error) {
-      message.error('Failed to save configuration')
+      showErrorModal('Failed to save configuration. Please check your inputs and try again.')
     }
-  }, [form, onConfigUpdate, id])
+  }, [form, onConfigUpdate, id, showErrorModal, validateClusterId, validateApplicationId, validateStepName, validateJarPath, validateMainClass, validateTimestamp])
 
   const handleExecute = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation()
+    
+    // Close any existing error modal when starting a new execution
+    if (isErrorModalVisible) {
+      setIsErrorModalVisible(false)
+      setErrorMessage('')
+    }
     
     if (!data.config.operation) {
       message.warning('Please configure operation first')
@@ -171,6 +474,29 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
           return
         }
         requestBody.clusterId = data.config.clusterId
+      } else if (data.config.operation === 'getYarnApplications') {
+        if (!data.config.clusterId) {
+          message.warning('Cluster ID is required for YARN applications operation')
+          return
+        }
+        requestBody.clusterId = data.config.clusterId
+        // Add optional parameters from form
+        const formValues = form.getFieldsValue()
+        if (formValues.limit) requestBody.limit = parseInt(formValues.limit)
+        if (formValues.windowStart) requestBody.windowStart = parseInt(formValues.windowStart)
+        if (formValues.windowEnd) requestBody.windowEnd = parseInt(formValues.windowEnd)
+      } else if (data.config.operation === 'getYarnApplicationDetails') {
+        if (!data.config.clusterId) {
+          message.warning('Cluster ID is required for YARN application details operation')
+          return
+        }
+        const formValues = form.getFieldsValue()
+        if (!formValues.applicationId) {
+          message.warning('Application ID is required for YARN application details operation')
+          return
+        }
+        requestBody.clusterId = data.config.clusterId
+        requestBody.applicationId = formValues.applicationId
       } else if (data.config.operation === 'addStep') {
         if (!data.config.clusterId || !data.config.stepName) {
           message.warning('Cluster ID and Step Name are required for add step operation')
@@ -231,6 +557,65 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
             output += `Ready: ${cluster.status?.timeline?.readyDateTime || 'N/A'}\n`
             output += `Instance Count: ${cluster.instanceCollectionType || 'N/A'}\n`
             output += `Applications: ${cluster.applications?.map((app: any) => app.name).join(', ') || 'N/A'}\n`
+          }
+        } else if (data.config.operation === 'getYarnApplications') {
+          const applications = result.applications || []
+          output += `Total YARN Applications Found: ${applications.length}\n`
+          output += `Cluster ID: ${result.clusterId}\n`
+          output += `Master DNS: ${result.masterDns}\n`
+          output += `Timeline Server URL: ${result.timelineServerUrl}\n\n`
+          
+          if (applications.length > 0) {
+            output += `YARN Application Details:\n`
+            output += `${'='.repeat(60)}\n`
+            applications.forEach((app: any, index: number) => {
+              output += `${index + 1}. Application ID: ${app.id || 'N/A'}\n`
+              output += `   Type: ${app.type || 'N/A'}\n`
+              output += `   Start Time: ${app.startTime || 'N/A'}\n`
+              output += `   Events: ${app.events?.length || 0} events\n`
+              if (app.events && app.events.length > 0) {
+                output += `   Latest Event: ${app.events[0]?.eventType || 'N/A'}\n`
+              }
+              output += `   ${'-'.repeat(40)}\n`
+            })
+          } else {
+            output += `No YARN applications found for this cluster.\n`
+            output += `This could mean:\n`
+            output += `- No applications have been submitted\n`
+            output += `- Timeline Server is not accessible\n`
+            output += `- Applications are outside the specified time window\n`
+          }
+        } else if (data.config.operation === 'getYarnApplicationDetails') {
+          const application = result.application
+          output += `YARN Application Details:\n`
+          output += `Cluster ID: ${result.clusterId}\n`
+          output += `Application ID: ${result.applicationId}\n\n`
+          
+          if (application) {
+            output += `Application Information:\n`
+            output += `${'='.repeat(50)}\n`
+            output += `Entity: ${application.entity || 'N/A'}\n`
+            output += `Type: ${application.entitytype || 'N/A'}\n`
+            output += `Start Time: ${application.starttime ? new Date(application.starttime).toISOString() : 'N/A'}\n`
+            
+            if (application.events && application.events.length > 0) {
+              output += `\nEvents (${application.events.length}):\n`
+              application.events.slice(0, 5).forEach((event: any, index: number) => {
+                output += `${index + 1}. ${event.eventtype} at ${event.timestamp ? new Date(event.timestamp).toISOString() : 'N/A'}\n`
+              })
+              if (application.events.length > 5) {
+                output += `... and ${application.events.length - 5} more events\n`
+              }
+            }
+            
+            if (application.otherinfo) {
+              output += `\nOther Information:\n`
+              Object.entries(application.otherinfo).slice(0, 10).forEach(([key, value]) => {
+                output += `${key}: ${value}\n`
+              })
+            }
+          } else {
+            output += `No application details found.\n`
           }
         } else if (data.config.operation === 'addStep') {
           output += `Step Added Successfully\n`
@@ -374,14 +759,16 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
             <Select placeholder="Select operation" onChange={handleOperationChange}>
               <Option value="listClusters">List Clusters</Option>
               <Option value="describeCluster">Describe Cluster</Option>
+              <Option value="getYarnApplications">Get YARN Applications</Option>
+              <Option value="getYarnApplicationDetails">Get YARN Application Details</Option>
               <Option value="addStep">Add Step</Option>
             </Select>
           </Form.Item>
 
           {getOperationAlert()}
 
-          {/* Cluster ID - Required for describe and addStep */}
-          {(selectedOperation === 'describeCluster' || selectedOperation === 'addStep') && (
+          {/* Cluster ID - Required for describe, addStep, and YARN operations */}
+          {(selectedOperation === 'describeCluster' || selectedOperation === 'addStep' || selectedOperation === 'getYarnApplications' || selectedOperation === 'getYarnApplicationDetails') && (
             <Form.Item
               label="Cluster ID"
               name="clusterId"
@@ -390,6 +777,47 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
             >
               <Input placeholder="j-1234567890ABC" />
             </Form.Item>
+          )}
+
+          {/* Application ID - Required for getYarnApplicationDetails */}
+          {selectedOperation === 'getYarnApplicationDetails' && (
+            <Form.Item
+              label="Application ID"
+              name="applicationId"
+              rules={[{ required: true, message: 'Application ID is required for this operation' }]}
+              help="Enter the YARN application ID (format: application_XXXXXXXXXXXXX_XXXX)"
+            >
+              <Input placeholder="application_1234567890123_0001" />
+            </Form.Item>
+          )}
+
+          {/* YARN Timeline Server Options - For getYarnApplications */}
+          {selectedOperation === 'getYarnApplications' && (
+            <>
+              <Form.Item
+                label="Limit (Optional)"
+                name="limit"
+                help="Maximum number of applications to retrieve (default: 100)"
+              >
+                <Input type="number" placeholder="100" />
+              </Form.Item>
+              
+              <Form.Item
+                label="Window Start (Optional)"
+                name="windowStart"
+                help="Start time for application window (Unix timestamp in milliseconds)"
+              >
+                <Input placeholder="1640995200000" />
+              </Form.Item>
+              
+              <Form.Item
+                label="Window End (Optional)"
+                name="windowEnd"
+                help="End time for application window (Unix timestamp in milliseconds)"
+              >
+                <Input placeholder="1641081600000" />
+              </Form.Item>
+            </>
           )}
 
           {/* Cluster Name - Optional for listClusters */}
@@ -454,6 +882,31 @@ const EMRNode: React.FC<EMRNodeProps> = memo(({ data, selected, id, onConfigUpda
             </>
           )}
         </Form>
+      </Modal>
+
+      {/* Persistent Error Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />
+            <span>Configuration Error</span>
+          </div>
+        }
+        open={isErrorModalVisible}
+        onOk={handleErrorModalClose}
+        onCancel={handleErrorModalClose}
+        footer={[
+          <Button key="ok" type="primary" onClick={handleErrorModalClose}>
+            OK
+          </Button>
+        ]}
+        width={500}
+        maskClosable={false}
+        closable={true}
+      >
+        <div style={{ whiteSpace: 'pre-line', marginTop: '16px' }}>
+          {errorMessage}
+        </div>
       </Modal>
     </>
   )

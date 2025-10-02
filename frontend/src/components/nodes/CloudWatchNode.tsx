@@ -1,7 +1,7 @@
 import React, { memo, useState, useCallback } from 'react'
 import { Handle, Position } from 'reactflow'
-import { SettingOutlined } from '@ant-design/icons'
-import { Modal, Form, Input, DatePicker, Button, Space, message } from 'antd'
+import { SettingOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, DatePicker, Button, message, Alert } from 'antd'
 import dayjs from 'dayjs'
 import CloudWatchIcon from '../icons/CloudWatchIcon'
 
@@ -27,7 +27,148 @@ interface CloudWatchNodeProps {
 
 const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id, onConfigUpdate, onNodeExecute }) => {
   const [isConfigModalVisible, setIsConfigModalVisible] = useState(false)
+  const [isErrorModalVisible, setIsErrorModalVisible] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const [form] = Form.useForm()
+
+  const showErrorModal = useCallback((error: string) => {
+    setErrorMessage(error)
+    setIsErrorModalVisible(true)
+  }, [])
+
+  const handleErrorModalClose = useCallback(() => {
+    setIsErrorModalVisible(false)
+    setErrorMessage('')
+  }, [])
+
+  const validateLogGroup = (logGroup: string): { isValid: boolean; error?: string } => {
+    if (!logGroup || logGroup.trim() === '') {
+      return { isValid: false, error: 'Log group name cannot be empty.' }
+    }
+
+    const trimmedLogGroup = logGroup.trim()
+
+    // CloudWatch log group names must start with a forward slash
+    if (!trimmedLogGroup.startsWith('/')) {
+      return { 
+        isValid: false, 
+        error: `Log group name must start with a forward slash (/). 
+
+Examples:
+• /aws/lambda/my-function
+• /aws/apigateway/my-api
+• /my-application/logs` 
+      }
+    }
+
+    // Check for valid characters (alphanumeric, hyphens, underscores, periods, forward slashes)
+    if (!/^[a-zA-Z0-9/_.-]+$/.test(trimmedLogGroup)) {
+      return { 
+        isValid: false, 
+        error: `Log group name contains invalid characters. Only letters, numbers, hyphens (-), underscores (_), periods (.), and forward slashes (/) are allowed.
+
+Current value: "${trimmedLogGroup}"` 
+      }
+    }
+
+    // Check length (CloudWatch log group names can be up to 512 characters)
+    if (trimmedLogGroup.length > 512) {
+      return { 
+        isValid: false, 
+        error: `Log group name is too long. Maximum length is 512 characters.
+
+Current length: ${trimmedLogGroup.length} characters` 
+      }
+    }
+
+    // Check for consecutive forward slashes
+    if (trimmedLogGroup.includes('//')) {
+      return { 
+        isValid: false, 
+        error: `Log group name cannot contain consecutive forward slashes (//).
+
+Current value: "${trimmedLogGroup}"` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateKeyword = (keyword: string): { isValid: boolean; error?: string } => {
+    if (!keyword || keyword.trim() === '') {
+      return { isValid: false, error: 'Search keyword cannot be empty.' }
+    }
+
+    const trimmedKeyword = keyword.trim()
+
+    // Check length (reasonable limit for search patterns)
+    if (trimmedKeyword.length > 1000) {
+      return { 
+        isValid: false, 
+        error: `Search keyword is too long. Maximum length is 1000 characters.
+
+Current length: ${trimmedKeyword.length} characters` 
+      }
+    }
+
+    return { isValid: true }
+  }
+
+  const validateTimeRange = (timeRange: any): { isValid: boolean; error?: string } => {
+    if (!timeRange || !Array.isArray(timeRange) || timeRange.length !== 2) {
+      return { isValid: true } // Time range is optional
+    }
+
+    const [startTime, endTime] = timeRange
+
+    if (!startTime || !endTime) {
+      return { 
+        isValid: false, 
+        error: 'Both start time and end time must be specified when using a time range.' 
+      }
+    }
+
+    const startTimestamp = startTime.valueOf()
+    const endTimestamp = endTime.valueOf()
+    const now = Date.now()
+
+    // Check if start time is before end time
+    if (startTimestamp >= endTimestamp) {
+      return { 
+        isValid: false, 
+        error: 'Start time must be before end time.' 
+      }
+    }
+
+    // Check if the time range is not too far in the future
+    if (startTimestamp > now + 24 * 60 * 60 * 1000) { // 24 hours in the future
+      return { 
+        isValid: false, 
+        error: 'Start time cannot be more than 24 hours in the future.' 
+      }
+    }
+
+    // Check if the time range is not too far in the past (CloudWatch retention limits)
+    const maxPastTime = now - 14 * 24 * 60 * 60 * 1000 // 14 days ago
+    if (endTimestamp < maxPastTime) {
+      return { 
+        isValid: false, 
+        error: 'Time range cannot be more than 14 days in the past due to CloudWatch log retention limits.' 
+      }
+    }
+
+    // Check if the time range is not too large (performance consideration)
+    const timeRangeDuration = endTimestamp - startTimestamp
+    const maxDuration = 7 * 24 * 60 * 60 * 1000 // 7 days
+    if (timeRangeDuration > maxDuration) {
+      return { 
+        isValid: false, 
+        error: 'Time range cannot exceed 7 days for performance reasons. Please use a smaller time window.' 
+      }
+    }
+
+    return { isValid: true }
+  }
 
   const handleConfigClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -48,6 +189,33 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
     try {
       const values = await form.validateFields()
       
+      // Validate log group
+      if (values.logGroup) {
+        const logGroupValidation = validateLogGroup(values.logGroup)
+        if (!logGroupValidation.isValid) {
+          showErrorModal(`Log Group Validation Error:\n\n${logGroupValidation.error}`)
+          return
+        }
+      }
+
+      // Validate keyword
+      if (values.keyword) {
+        const keywordValidation = validateKeyword(values.keyword)
+        if (!keywordValidation.isValid) {
+          showErrorModal(`Search Keyword Validation Error:\n\n${keywordValidation.error}`)
+          return
+        }
+      }
+
+      // Validate time range
+      if (values.timeRange) {
+        const timeRangeValidation = validateTimeRange(values.timeRange)
+        if (!timeRangeValidation.isValid) {
+          showErrorModal(`Time Range Validation Error:\n\n${timeRangeValidation.error}`)
+          return
+        }
+      }
+      
       // Update node data with new configuration
       const newConfig = {
         logGroup: values.logGroup,
@@ -56,33 +224,28 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         endTime: values.timeRange?.[1]?.toISOString()
       }
 
-      console.log('CloudWatch node - saving config:', newConfig)
-      console.log('CloudWatch node - onConfigUpdate function:', onConfigUpdate)
-      console.log('CloudWatch node - node id:', id)
-
       // Call the parent component's config update handler
       if (onConfigUpdate) {
         onConfigUpdate(id, newConfig)
-        console.log('CloudWatch node - config update called')
-      } else {
-        console.error('CloudWatch node - onConfigUpdate is not available')
       }
       
       setIsConfigModalVisible(false)
       message.success('CloudWatch configuration updated')
     } catch (error) {
-      console.error('Failed to save configuration:', error)
-      message.error('Failed to save configuration')
+      showErrorModal('Failed to save configuration. Please check your inputs and try again.')
     }
-  }, [form, onConfigUpdate, id])
+  }, [form, onConfigUpdate, id, showErrorModal, validateLogGroup, validateKeyword, validateTimeRange])
 
   const handleExecute = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation()
     
-    console.log('CloudWatch node - handleExecute called with config:', data.config)
+    // Close any existing error modal when starting a new execution
+    if (isErrorModalVisible) {
+      setIsErrorModalVisible(false)
+      setErrorMessage('')
+    }
     
     if (!data.config.logGroup || !data.config.keyword) {
-      console.log('CloudWatch node - missing config:', { logGroup: data.config.logGroup, keyword: data.config.keyword })
       message.warning('Please configure log group and keyword first')
       return
     }
@@ -98,8 +261,6 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         endTime: data.config.endTime ? new Date(data.config.endTime).getTime() : Date.now()
       }
       
-      console.log('CloudWatch node - making API request with body:', requestBody)
-      
       // Call backend API to execute CloudWatch query
       const response = await fetch('/api/aws/cloudwatch/query', {
         method: 'POST',
@@ -109,10 +270,7 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         body: JSON.stringify(requestBody)
       })
 
-      console.log('CloudWatch node - API response status:', response.status)
-      
       const result = await response.json()
-      console.log('CloudWatch node - API response body:', result)
       
       const duration = Date.now() - startTime
 
@@ -129,7 +287,7 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         if (events.length > 0) {
           output += `Recent Log Entries:\n`
           output += `${'='.repeat(50)}\n`
-          events.slice(0, 10).forEach((event: any, index: number) => {
+          events.slice(0, 10).forEach((event: any) => {
             output += `[${event.timestamp}] ${event.logStream}\n`
             output += `${event.message}\n`
             output += `${'-'.repeat(30)}\n`
@@ -156,7 +314,6 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         }
 
         message.success(`Found ${events.length} log entries`)
-        console.log('CloudWatch query result:', result)
       } else {
         const executionResult = {
           nodeId: id,
@@ -171,7 +328,6 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
           onNodeExecute(executionResult)
         }
 
-        console.error('CloudWatch node - API error:', result)
         message.error(`Query failed: ${result.message || 'Unknown error'}`)
       }
     } catch (error: any) {
@@ -188,10 +344,9 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
         onNodeExecute(executionResult)
       }
 
-      console.error('CloudWatch query error:', error)
       message.error('Failed to execute CloudWatch query')
     }
-  }, [data.config, id, onNodeExecute])
+  }, [data.config, id, onNodeExecute, isErrorModalVisible])
 
   return (
     <>
@@ -296,6 +451,31 @@ const CloudWatchNode: React.FC<CloudWatchNodeProps> = memo(({ data, selected, id
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Persistent Error Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />
+            <span>Configuration Error</span>
+          </div>
+        }
+        open={isErrorModalVisible}
+        onOk={handleErrorModalClose}
+        onCancel={handleErrorModalClose}
+        footer={[
+          <Button key="ok" type="primary" onClick={handleErrorModalClose}>
+            OK
+          </Button>
+        ]}
+        width={500}
+        maskClosable={false}
+        closable={true}
+      >
+        <div style={{ whiteSpace: 'pre-line', marginTop: '16px' }}>
+          {errorMessage}
+        </div>
       </Modal>
     </>
   )

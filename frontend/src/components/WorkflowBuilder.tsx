@@ -47,10 +47,18 @@ const createNodeTypes = (
     return <EMRNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
   })
   
+  const S3NodeWrapper = React.memo((props: any) => {
+    return <S3Node {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
+  const DynamoDBNodeWrapper = React.memo((props: any) => {
+    return <DynamoDBNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
   return {
     cloudwatch: CloudWatchNodeWrapper,
-    dynamodb: DynamoDBNode,
-    s3: S3Node,
+    dynamodb: DynamoDBNodeWrapper,
+    s3: S3NodeWrapper,
     lambda: LambdaNode,
     emr: EMRNodeWrapper,
     condition: ConditionNode,
@@ -381,6 +389,114 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+  const executeDynamoDBNode = async (node: Node) => {
+    const config = node.data.config
+    
+    if (!config.tableName) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: 'DynamoDB node not properly configured. Please set table name.',
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+
+    try {
+      const startTime = Date.now()
+      
+      const requestBody = {
+        accountId: 'dev-account-1',
+        tableName: config.tableName,
+        operation: config.operation || 'scan',
+        partitionKey: config.partitionKey,
+        partitionKeyValue: config.partitionKeyValue,
+        sortKey: config.sortKey,
+        sortKeyValue: config.sortKeyValue,
+        indexName: config.indexName,
+        filterExpression: config.filterExpression,
+        limit: config.limit || 25
+      }
+      
+      const response = await fetch('/api/aws/dynamodb/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+      const duration = Date.now() - startTime
+
+      if (response.ok && result.success) {
+        const items = result.items || []
+        const summary = result.summary || {}
+        
+        let output = `DynamoDB Query Results:\n`
+        output += `Table: ${config.tableName}\n`
+        output += `Operation: ${config.operation || 'scan'}\n`
+        if (config.indexName) {
+          output += `Index: ${config.indexName}\n`
+        }
+        if (config.partitionKey && config.partitionKeyValue) {
+          output += `Partition Key: ${config.partitionKey} = ${config.partitionKeyValue}\n`
+        }
+        if (config.sortKey && config.sortKeyValue) {
+          output += `Sort Key: ${config.sortKey} = ${config.sortKeyValue}\n`
+        }
+        if (config.filterExpression) {
+          output += `Filter: ${config.filterExpression}\n`
+        }
+        output += `Items Found: ${items.length}\n`
+        output += `Scanned Count: ${summary.scannedCount || 'N/A'}\n`
+        output += `Consumed Capacity: ${summary.consumedCapacity || 'N/A'}\n\n`
+        
+        if (items.length > 0) {
+          output += `Items:\n`
+          output += `${'='.repeat(50)}\n`
+          items.slice(0, 10).forEach((item: any, index: number) => {
+            output += `Item ${index + 1}:\n`
+            Object.entries(item).forEach(([key, value]) => {
+              output += `  ${key}: ${JSON.stringify(value)}\n`
+            })
+            output += `${'-'.repeat(30)}\n`
+          })
+          
+          if (items.length > 10) {
+            output += `... and ${items.length - 10} more items\n`
+          }
+        } else {
+          output += `No items found matching the query criteria\n`
+        }
+
+        return {
+          nodeId: node.id,
+          status: 'success' as const,
+          output,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        return {
+          nodeId: node.id,
+          status: 'error' as const,
+          output: `DynamoDB query failed: ${result.message || 'Unknown error'}`,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    } catch (error: any) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: `DynamoDB query error: ${error.message}`,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+  }
+
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
       message.warning('Please add some nodes to execute the workflow')
@@ -410,6 +526,9 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
         switch (node.type) {
           case 'cloudwatch':
             result = await executeCloudWatchNode(node)
+            break
+          case 'dynamodb':
+            result = await executeDynamoDBNode(node)
             break
           case 'emr':
             result = await executeEMRNode(node)

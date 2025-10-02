@@ -159,7 +159,7 @@ const Dashboard: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record: Workflow) => (
+      render: (_: any, record: Workflow) => (
         <Space>
           <Button 
             type="text" 
@@ -231,13 +231,11 @@ const Dashboard: React.FC = () => {
     },
   ]
 
-  const handleRunWorkflow = (workflowId: string) => {
-    console.log('Running workflow:', workflowId)
+  const handleRunWorkflow = (_workflowId: string) => {
     // Implement workflow execution
   }
 
-  const handleDeleteWorkflow = (workflowId: string) => {
-    console.log('Deleting workflow:', workflowId)
+  const handleDeleteWorkflow = (_workflowId: string) => {
     // Implement workflow deletion
   }
 

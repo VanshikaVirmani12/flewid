@@ -1,4 +1,4 @@
-import { STSClient, AssumeRoleCommand, Credentials } from '@aws-sdk/client-sts'
+import { STSClient, AssumeRoleCommand, Credentials, GetCallerIdentityCommand } from '@aws-sdk/client-sts'
 import { createCipher, createDecipher } from 'crypto'
 import { logger } from '../utils/logger'
 import { createError } from '../middleware/errorHandler'
@@ -37,7 +37,7 @@ export class AWSCredentialService {
    * For development and same-account deployments
    */
   async getLocalCredentials(region: string = 'us-east-1'): Promise<AWSCredentials> {
-    logger.info('Using local AWS credentials')
+    logger.info('Getting local AWS credentials')
 
     try {
       // Use default credential provider chain
@@ -45,16 +45,36 @@ export class AWSCredentialService {
       const credentialProvider = fromNodeProviderChain()
       const credentials = await credentialProvider()
 
-      return {
+      // Validate credentials before returning
+      const awsCredentials: AWSCredentials = {
         accessKeyId: credentials.accessKeyId,
         secretAccessKey: credentials.secretAccessKey,
         sessionToken: credentials.sessionToken,
         region: region
       }
 
+      // Test the credentials to ensure they're valid
+      const isValid = await this.validateCredentials(awsCredentials)
+      if (!isValid) {
+        throw new Error('Local credentials are invalid or expired')
+      }
+
+      logger.info('Successfully retrieved and validated local AWS credentials')
+      return awsCredentials
+
     } catch (error: any) {
       logger.error('Failed to get local AWS credentials', { error: error.message })
-      throw createError(`Failed to get local AWS credentials: ${error.message}`, 403)
+      
+      // Provide more specific error messages
+      if (error.message.includes('ExpiredToken') || error.message.includes('TokenRefreshRequired')) {
+        throw createError('AWS credentials have expired. Please refresh your AWS credentials using "aws sso login" or update your AWS credentials.', 401)
+      } else if (error.message.includes('NoCredentialsError')) {
+        throw createError('No AWS credentials found. Please configure AWS credentials using "aws configure" or set up AWS SSO.', 401)
+      } else if (error.message.includes('invalid') || error.message.includes('expired')) {
+        throw createError('AWS credentials are invalid or expired. Please refresh your credentials.', 401)
+      } else {
+        throw createError(`Failed to get local AWS credentials: ${error.message}`, 403)
+      }
     }
   }
 
@@ -79,7 +99,15 @@ export class AWSCredentialService {
       const cached = this.credentialsCache.get(account.id)
       if (cached && cached.expiry > new Date()) {
         logger.info('Using cached credentials', { accountId: account.id })
-        return cached.credentials
+        
+        // Validate cached credentials before using them
+        const isValid = await this.validateCredentials(cached.credentials)
+        if (isValid) {
+          return cached.credentials
+        } else {
+          logger.warn('Cached credentials are invalid, removing from cache', { accountId: account.id })
+          this.credentialsCache.delete(account.id)
+        }
       }
 
       const command = new AssumeRoleCommand({
@@ -122,7 +150,14 @@ export class AWSCredentialService {
         accountId: account.id,
         error: error.message 
       })
-      throw createError(`Failed to assume role: ${error.message}`, 403)
+      
+      if (error.message.includes('ExpiredToken')) {
+        throw createError('Base AWS credentials have expired. Please refresh your AWS credentials.', 401)
+      } else if (error.message.includes('AccessDenied')) {
+        throw createError(`Access denied when assuming role ${account.roleArn}. Check IAM permissions.`, 403)
+      } else {
+        throw createError(`Failed to assume role: ${error.message}`, 403)
+      }
     }
   }
 
@@ -171,14 +206,26 @@ export class AWSCredentialService {
       })
 
       // Test credentials with GetCallerIdentity
-      const { GetCallerIdentityCommand } = await import('@aws-sdk/client-sts')
       await testSts.send(new GetCallerIdentityCommand({}))
       
       logger.info('AWS credentials validated successfully')
       return true
 
     } catch (error: any) {
-      logger.warn('AWS credentials validation failed', { error: error.message })
+      logger.warn('AWS credentials validation failed', { 
+        error: error.message,
+        errorName: error.name 
+      })
+      
+      // Log specific error types for debugging
+      if (error.name === 'ExpiredToken' || error.name === 'TokenRefreshRequired') {
+        logger.warn('Credentials have expired')
+      } else if (error.name === 'InvalidClientTokenId') {
+        logger.warn('Invalid access key ID')
+      } else if (error.name === 'SignatureDoesNotMatch') {
+        logger.warn('Invalid secret access key')
+      }
+      
       return false
     }
   }
@@ -191,6 +238,14 @@ export class AWSCredentialService {
     
     if (!cached || cached.expiry <= new Date()) {
       logger.info('Refreshing expired credentials', { accountId: account.id })
+      return await this.assumeRole(account)
+    }
+
+    // Even if cached credentials aren't expired, validate them
+    const isValid = await this.validateCredentials(cached.credentials)
+    if (!isValid) {
+      logger.info('Cached credentials are invalid, refreshing', { accountId: account.id })
+      this.credentialsCache.delete(account.id)
       return await this.assumeRole(account)
     }
 
@@ -244,5 +299,56 @@ export class AWSCredentialService {
       timestamp: new Date().toISOString(),
       userAgent: 'flowid-backend'
     })
+  }
+
+  /**
+   * Check credential status and provide helpful information
+   */
+  async checkCredentialStatus(): Promise<{
+    isValid: boolean
+    provider: string
+    expiresAt?: Date
+    identity?: any
+    error?: string
+  }> {
+    try {
+      if (this.shouldUseLocalCredentials()) {
+        const credentials = await this.getLocalCredentials()
+        
+        // Get caller identity for additional info
+        const testSts = new STSClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        const identity = await testSts.send(new GetCallerIdentityCommand({}))
+        
+        return {
+          isValid: true,
+          provider: 'local',
+          identity: {
+            userId: identity.UserId,
+            account: identity.Account,
+            arn: identity.Arn
+          }
+        }
+      } else {
+        return {
+          isValid: false,
+          provider: 'role-based',
+          error: 'Role-based credentials not implemented for status check'
+        }
+      }
+    } catch (error: any) {
+      return {
+        isValid: false,
+        provider: this.shouldUseLocalCredentials() ? 'local' : 'role-based',
+        error: error.message
+      }
+    }
   }
 }

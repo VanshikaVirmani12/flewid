@@ -44,6 +44,153 @@ export class AWSService {
   }
 
   /**
+   * Validate and parse DynamoDB filter expression
+   */
+  private validateAndParseFilterExpression(filterExpression: string): {
+    isValid: boolean
+    error?: string
+    filterExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+  } {
+    if (!filterExpression || filterExpression.trim() === '') {
+      return { isValid: false, error: 'Filter expression cannot be empty' }
+    }
+
+    const trimmedExpression = filterExpression.trim()
+    const expressionAttributeNames: Record<string, string> = {}
+    const expressionAttributeValues: Record<string, any> = {}
+    let parsedFilterExpression = trimmedExpression
+
+    // Handle simple equality filters like "Status=ACTIVE" or "attribute=value"
+    const equalityMatch = trimmedExpression.match(/^(\w+)\s*=\s*(.+)$/)
+    if (equalityMatch) {
+      const [, attributeName, attributeValue] = equalityMatch
+      
+      // Validate attribute name (must be alphanumeric and underscores)
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(attributeName)) {
+        return { 
+          isValid: false, 
+          error: `The attribute name "${attributeName}" is not valid.\n\nAttribute names must:\n• Start with a letter (a-z, A-Z) or underscore (_)\n• Only contain letters, numbers, and underscores\n\nExample: "Status" or "user_id" or "_internal"` 
+        }
+      }
+
+      // Validate attribute value (cannot be empty)
+      const cleanValue = attributeValue.trim().replace(/^["']|["']$/g, '')
+      if (cleanValue === '') {
+        return { 
+          isValid: false, 
+          error: `The value for "${attributeName}" cannot be empty.\n\nPlease provide a value after the equals sign.\n\nExample: ${attributeName}=ACTIVE` 
+        }
+      }
+
+      expressionAttributeNames[`#${attributeName}`] = attributeName
+      expressionAttributeValues[`:${attributeName}Val`] = { S: cleanValue }
+      parsedFilterExpression = `#${attributeName} = :${attributeName}Val`
+
+      return {
+        isValid: true,
+        filterExpression: parsedFilterExpression,
+        expressionAttributeNames,
+        expressionAttributeValues
+      }
+    }
+
+    // Handle attribute_exists function
+    const attributeExistsMatch = trimmedExpression.match(/^attribute_exists\s*\(\s*([^)]+)\s*\)$/)
+    if (attributeExistsMatch) {
+      const attributeName = attributeExistsMatch[1].trim().replace(/["']/g, '')
+      
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(attributeName)) {
+        return { 
+          isValid: false, 
+          error: `Invalid attribute name '${attributeName}' in attribute_exists function. Attribute names must start with a letter or underscore and contain only letters, numbers, and underscores.` 
+        }
+      }
+
+      expressionAttributeNames[`#${attributeName}`] = attributeName
+      parsedFilterExpression = `attribute_exists(#${attributeName})`
+
+      return {
+        isValid: true,
+        filterExpression: parsedFilterExpression,
+        expressionAttributeNames,
+        expressionAttributeValues: {}
+      }
+    }
+
+    // Handle contains function
+    const containsMatch = trimmedExpression.match(/^contains\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)$/)
+    if (containsMatch) {
+      const attributeName = containsMatch[1].trim().replace(/["']/g, '')
+      const searchValue = containsMatch[2].trim().replace(/["']/g, '')
+
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(attributeName)) {
+        return { 
+          isValid: false, 
+          error: `Invalid attribute name '${attributeName}' in contains function. Attribute names must start with a letter or underscore and contain only letters, numbers, and underscores.` 
+        }
+      }
+
+      if (searchValue === '') {
+        return { 
+          isValid: false, 
+          error: `Search value cannot be empty in contains function '${trimmedExpression}'` 
+        }
+      }
+
+      expressionAttributeNames[`#${attributeName}`] = attributeName
+      expressionAttributeValues[`:${attributeName}Val`] = { S: searchValue }
+      parsedFilterExpression = `contains(#${attributeName}, :${attributeName}Val)`
+
+      return {
+        isValid: true,
+        filterExpression: parsedFilterExpression,
+        expressionAttributeNames,
+        expressionAttributeValues
+      }
+    }
+
+    // Handle begins_with function
+    const beginsWithMatch = trimmedExpression.match(/^begins_with\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)$/)
+    if (beginsWithMatch) {
+      const attributeName = beginsWithMatch[1].trim().replace(/["']/g, '')
+      const prefixValue = beginsWithMatch[2].trim().replace(/["']/g, '')
+
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(attributeName)) {
+        return { 
+          isValid: false, 
+          error: `Invalid attribute name '${attributeName}' in begins_with function. Attribute names must start with a letter or underscore and contain only letters, numbers, and underscores.` 
+        }
+      }
+
+      if (prefixValue === '') {
+        return { 
+          isValid: false, 
+          error: `Prefix value cannot be empty in begins_with function '${trimmedExpression}'` 
+        }
+      }
+
+      expressionAttributeNames[`#${attributeName}`] = attributeName
+      expressionAttributeValues[`:${attributeName}Val`] = { S: prefixValue }
+      parsedFilterExpression = `begins_with(#${attributeName}, :${attributeName}Val)`
+
+      return {
+        isValid: true,
+        filterExpression: parsedFilterExpression,
+        expressionAttributeNames,
+        expressionAttributeValues
+      }
+    }
+
+    // If none of the patterns match, return error with helpful message
+    return {
+      isValid: false,
+      error: `The filter expression "${trimmedExpression}" is not in a supported format.\n\nSupported formats:\n\n• Simple equality: attribute=value\n  Example: Status=ACTIVE\n\n• Contains text: contains(attribute,value)\n  Example: contains(name,John)\n\n• Starts with: begins_with(attribute,value)\n  Example: begins_with(id,user)\n\n• Check if exists: attribute_exists(attribute)\n  Example: attribute_exists(email)`
+    }
+  }
+
+  /**
    * Query CloudWatch logs with real AWS SDK
    */
   async queryCloudWatchLogs(params: {
@@ -207,24 +354,259 @@ export class AWSService {
     }
   }
 
-  async queryDynamoDB(params: any): Promise<any> {
-    logger.info('Querying DynamoDB', { params })
-    
-    // Mock implementation
-    return {
-      items: [
-        {
-          id: 'item-1',
-          data: 'Sample DynamoDB item 1',
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: 'item-2',
-          data: 'Sample DynamoDB item 2',
-          timestamp: new Date().toISOString()
+  /**
+   * Query or scan DynamoDB table with real AWS SDK
+   */
+  async queryDynamoDB(params: {
+    accountId: string
+    tableName: string
+    operation: 'scan' | 'query'
+    partitionKey?: string
+    partitionKeyValue?: string
+    sortKey?: string
+    sortKeyValue?: string
+    indexName?: string
+    filterExpression?: string
+    limit?: number
+  }): Promise<any> {
+    logger.info('Querying DynamoDB', { 
+      accountId: params.accountId,
+      tableName: params.tableName,
+      operation: params.operation,
+      partitionKey: params.partitionKey,
+      indexName: params.indexName,
+      limit: params.limit
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create DynamoDB client with local credentials
+        const client = new DynamoDBClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        let command
+        let response
+        
+        if (params.operation === 'query') {
+          // Validate required parameters for query
+          if (!params.partitionKey || !params.partitionKeyValue) {
+            throw createError('Partition key name and value are required for query operations', 400)
+          }
+
+          // Build key condition expression
+          let keyConditionExpression = `#pk = :pkval`
+          const expressionAttributeNames: Record<string, string> = {
+            '#pk': params.partitionKey
+          }
+          const expressionAttributeValues: Record<string, any> = {
+            ':pkval': { S: params.partitionKeyValue }
+          }
+
+          // Add sort key condition if provided
+          if (params.sortKey && params.sortKeyValue) {
+            keyConditionExpression += ` AND #sk = :skval`
+            expressionAttributeNames['#sk'] = params.sortKey
+            expressionAttributeValues[':skval'] = { S: params.sortKeyValue }
+          }
+
+          // Build query parameters
+          const queryParams: any = {
+            TableName: params.tableName,
+            KeyConditionExpression: keyConditionExpression,
+            ExpressionAttributeNames: expressionAttributeNames,
+            ExpressionAttributeValues: expressionAttributeValues,
+            Limit: params.limit || 25,
+            ReturnConsumedCapacity: 'TOTAL'
+          }
+
+          // Add index if specified
+          if (params.indexName) {
+            queryParams.IndexName = params.indexName
+          }
+
+          // Add filter expression if provided
+          if (params.filterExpression) {
+            // Validate and parse filter expression
+            const validationResult = this.validateAndParseFilterExpression(params.filterExpression)
+            if (!validationResult.isValid) {
+              throw createError(`Invalid filter expression: ${validationResult.error}`, 400)
+            }
+
+            queryParams.FilterExpression = validationResult.filterExpression
+            
+            // Merge filter expression attributes with existing key condition attributes
+            if (validationResult.expressionAttributeNames && Object.keys(validationResult.expressionAttributeNames).length > 0) {
+              queryParams.ExpressionAttributeNames = {
+                ...queryParams.ExpressionAttributeNames,
+                ...validationResult.expressionAttributeNames
+              }
+            }
+            
+            if (validationResult.expressionAttributeValues && Object.keys(validationResult.expressionAttributeValues).length > 0) {
+              queryParams.ExpressionAttributeValues = {
+                ...queryParams.ExpressionAttributeValues,
+                ...validationResult.expressionAttributeValues
+              }
+            }
+          }
+
+          logger.info('DynamoDB Query parameters', {
+            tableName: params.tableName,
+            keyConditionExpression,
+            indexName: params.indexName,
+            filterExpression: params.filterExpression,
+            limit: params.limit
+          })
+
+          command = new QueryCommand(queryParams)
+          response = await client.send(command)
+          
+          this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:Query', true)
+
+        } else {
+          // Scan operation
+          const scanParams: any = {
+            TableName: params.tableName,
+            Limit: params.limit || 25,
+            ReturnConsumedCapacity: 'TOTAL'
+          }
+
+          // Add index if specified
+          if (params.indexName) {
+            scanParams.IndexName = params.indexName
+          }
+
+          // Add filter expression if provided
+          if (params.filterExpression) {
+            // Validate and parse filter expression
+            const validationResult = this.validateAndParseFilterExpression(params.filterExpression)
+            if (!validationResult.isValid) {
+              throw createError(`Invalid filter expression: ${validationResult.error}`, 400)
+            }
+
+            scanParams.FilterExpression = validationResult.filterExpression
+            
+            if (validationResult.expressionAttributeNames && Object.keys(validationResult.expressionAttributeNames).length > 0) {
+              scanParams.ExpressionAttributeNames = validationResult.expressionAttributeNames
+            }
+            
+            if (validationResult.expressionAttributeValues && Object.keys(validationResult.expressionAttributeValues).length > 0) {
+              scanParams.ExpressionAttributeValues = validationResult.expressionAttributeValues
+            }
+          }
+
+          logger.info('DynamoDB Scan parameters', {
+            tableName: params.tableName,
+            indexName: params.indexName,
+            filterExpression: params.filterExpression,
+            limit: params.limit
+          })
+
+          command = new ScanCommand(scanParams)
+          response = await client.send(command)
+          
+          this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:Scan', true)
         }
-      ],
-      count: 2
+
+        // Convert DynamoDB items to plain JavaScript objects
+        const items = response.Items?.map((item: any) => {
+          const convertedItem: any = {}
+          Object.entries(item).forEach(([key, value]: [string, any]) => {
+            // Convert DynamoDB attribute values to plain values
+            if (value.S !== undefined) convertedItem[key] = value.S
+            else if (value.N !== undefined) convertedItem[key] = Number(value.N)
+            else if (value.BOOL !== undefined) convertedItem[key] = value.BOOL
+            else if (value.SS !== undefined) convertedItem[key] = value.SS
+            else if (value.NS !== undefined) convertedItem[key] = value.NS.map(Number)
+            else if (value.L !== undefined) convertedItem[key] = value.L
+            else if (value.M !== undefined) convertedItem[key] = value.M
+            else if (value.NULL !== undefined) convertedItem[key] = null
+            else convertedItem[key] = value
+          })
+          return convertedItem
+        }) || []
+
+        logger.info('DynamoDB operation completed', {
+          accountId: params.accountId,
+          operation: params.operation,
+          itemsReturned: items.length,
+          scannedCount: response.ScannedCount,
+          consumedCapacity: response.ConsumedCapacity?.CapacityUnits
+        })
+
+        return {
+          success: true,
+          items,
+          count: response.Count || 0,
+          scannedCount: response.ScannedCount || 0,
+          lastEvaluatedKey: response.LastEvaluatedKey,
+          summary: {
+            operation: params.operation,
+            tableName: params.tableName,
+            itemsReturned: items.length,
+            scannedCount: response.ScannedCount || 0,
+            consumedCapacity: response.ConsumedCapacity?.CapacityUnits || 0,
+            indexName: params.indexName,
+            hasMoreResults: !!response.LastEvaluatedKey
+          }
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create DynamoDB client
+        const client = new DynamoDBClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Similar logic as above but with role-based credentials
+        // Implementation would be the same, just using different credentials
+        
+        // For now, return a placeholder
+        return {
+          success: false,
+          message: 'Role-based DynamoDB operations not fully implemented'
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, `dynamodb:${params.operation}`, false)
+      logger.error('Failed to query DynamoDB', { 
+        accountId: params.accountId,
+        tableName: params.tableName,
+        operation: params.operation,
+        error: error.message
+      })
+      
+      // Return more specific error messages
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Table '${params.tableName}' not found`, 404)
+      } else if (error.name === 'ValidationException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else if (error.name === 'AccessDeniedException') {
+        throw createError(`Access denied to table '${params.tableName}'`, 403)
+      } else if (error.name === 'UnrecognizedClientException' || error.name === 'InvalidClientTokenId') {
+        throw createError('AWS credentials are invalid or not configured', 401)
+      } else if (error.name === 'ProvisionedThroughputExceededException') {
+        throw createError('Table throughput exceeded. Please try again later.', 429)
+      } else {
+        throw createError(`DynamoDB operation failed: ${error.message}`, 500)
+      }
     }
   }
 
@@ -256,6 +638,193 @@ export class AWSService {
       content: 'Sample S3 object content',
       contentType: 'text/plain',
       size: 1024
+    }
+  }
+
+  /**
+   * Explore S3 location - determine if it's a folder or object and return appropriate data
+   */
+  async exploreS3Location(params: {
+    accountId: string
+    s3Location: string
+  }): Promise<any> {
+    logger.info('Exploring S3 location', { 
+      accountId: params.accountId,
+      s3Location: params.s3Location
+    })
+
+    try {
+      // Parse S3 location
+      const s3Url = params.s3Location.startsWith('s3://') ? params.s3Location : `s3://${params.s3Location}`
+      const urlParts = s3Url.replace('s3://', '').split('/')
+      const bucket = urlParts[0]
+      const key = urlParts.slice(1).join('/')
+
+      if (!bucket) {
+        throw createError('Invalid S3 location: bucket name is required', 400)
+      }
+
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create S3 client with local credentials
+        const client = new S3Client({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // First, try to check if it's an object by attempting to get its metadata
+        if (key && !key.endsWith('/')) {
+          try {
+            const headCommand = new GetObjectCommand({
+              Bucket: bucket,
+              Key: key
+            })
+            
+            // Just get metadata, not the actual content
+            const headResponse = await client.send(headCommand)
+            
+            this.credentialService.auditCredentialUsage(params.accountId, 's3:GetObject', true)
+
+            // It's an object, return object details
+            return {
+              success: true,
+              type: 'object',
+              object: {
+                bucket: bucket,
+                key: key,
+                size: headResponse.ContentLength,
+                lastModified: headResponse.LastModified?.toISOString(),
+                etag: headResponse.ETag?.replace(/"/g, ''),
+                contentType: headResponse.ContentType,
+                storageClass: headResponse.StorageClass,
+                metadata: headResponse.Metadata || {}
+              }
+            }
+          } catch (error: any) {
+            // If GetObject fails, it might be a folder or the object doesn't exist
+            // Continue to list objects
+            logger.info('Object not found, treating as folder', { bucket, key })
+          }
+        }
+
+        // It's a folder (bucket root or prefix), list contents
+        const listCommand = new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: key || '',
+          Delimiter: '/',
+          MaxKeys: 1000
+        })
+
+        const listResponse = await client.send(listCommand)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 's3:ListObjectsV2', true)
+
+        const items: any[] = []
+
+        // Add folders (common prefixes)
+        if (listResponse.CommonPrefixes) {
+          listResponse.CommonPrefixes.forEach(prefix => {
+            if (prefix.Prefix) {
+              const folderName = prefix.Prefix.replace(key || '', '').replace('/', '')
+              if (folderName) {
+                items.push({
+                  name: folderName,
+                  type: 'folder',
+                  fullPath: `s3://${bucket}/${prefix.Prefix}`
+                })
+              }
+            }
+          })
+        }
+
+        // Add objects
+        if (listResponse.Contents) {
+          listResponse.Contents.forEach(object => {
+            if (object.Key && object.Key !== (key || '')) {
+              const objectName = object.Key.replace(key || '', '').replace(/^\//, '')
+              if (objectName && !objectName.includes('/')) {
+                items.push({
+                  name: objectName,
+                  type: 'object',
+                  size: object.Size,
+                  lastModified: object.LastModified?.toISOString(),
+                  etag: object.ETag?.replace(/"/g, ''),
+                  storageClass: object.StorageClass,
+                  fullPath: `s3://${bucket}/${object.Key}`
+                })
+              }
+            }
+          })
+        }
+
+        // Sort items: folders first, then objects, both alphabetically
+        items.sort((a, b) => {
+          if (a.type !== b.type) {
+            return a.type === 'folder' ? -1 : 1
+          }
+          return a.name.localeCompare(b.name)
+        })
+
+        return {
+          success: true,
+          type: 'folder',
+          bucket: bucket,
+          prefix: key || '',
+          items: items,
+          truncated: listResponse.IsTruncated || false,
+          nextContinuationToken: listResponse.NextContinuationToken
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create S3 client
+        const client = new S3Client({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Similar logic as above but with role-based credentials
+        // Implementation would be the same, just using different credentials
+        
+        // For now, return a placeholder
+        return {
+          success: false,
+          message: 'Role-based S3 exploration not fully implemented'
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 's3:Explore', false)
+      logger.error('Failed to explore S3 location', { 
+        accountId: params.accountId,
+        s3Location: params.s3Location,
+        error: error.message
+      })
+      
+      // Return more specific error messages
+      if (error.name === 'NoSuchBucket') {
+        throw createError(`Bucket '${params.s3Location}' does not exist`, 404)
+      } else if (error.name === 'AccessDenied') {
+        throw createError(`Access denied to S3 location '${params.s3Location}'`, 403)
+      } else if (error.name === 'InvalidBucketName') {
+        throw createError(`Invalid bucket name in '${params.s3Location}'`, 400)
+      } else if (error.name === 'UnrecognizedClientException' || error.name === 'InvalidClientTokenId') {
+        throw createError('AWS credentials are invalid or not configured', 401)
+      } else {
+        throw createError(`S3 exploration failed: ${error.message}`, 500)
+      }
     }
   }
 
@@ -820,6 +1389,189 @@ export class AWSService {
       })
       
       throw createError(`Failed to list EMR steps: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * Get YARN Timeline Server applications for EMR cluster
+   */
+  async getEMRYarnApplications(params: {
+    accountId: string
+    clusterId: string
+    limit?: number
+    windowStart?: number
+    windowEnd?: number
+  }): Promise<any> {
+    logger.info('Getting YARN applications for EMR cluster', { 
+      accountId: params.accountId,
+      clusterId: params.clusterId
+    })
+
+    try {
+      // First get cluster info to get master DNS
+      const clusterInfo = await this.describeEMRCluster({
+        accountId: params.accountId,
+        clusterId: params.clusterId
+      })
+
+      if (!clusterInfo.cluster.masterPublicDnsName) {
+        throw createError('Cluster does not have a public DNS name. Timeline Server access requires a running cluster with public DNS.', 400)
+      }
+
+      const masterDns = clusterInfo.cluster.masterPublicDnsName
+      const timelineUrl = `http://${masterDns}:8188/ws/v1/timeline/YARN_APPLICATION`
+      
+      // Build query parameters
+      const queryParams = new URLSearchParams()
+      if (params.limit) queryParams.append('limit', params.limit.toString())
+      if (params.windowStart) queryParams.append('windowStart', params.windowStart.toString())
+      if (params.windowEnd) queryParams.append('windowEnd', params.windowEnd.toString())
+      
+      const fullUrl = queryParams.toString() ? `${timelineUrl}?${queryParams}` : timelineUrl
+
+      logger.info('Fetching YARN applications from Timeline Server', { 
+        url: fullUrl,
+        clusterId: params.clusterId
+      })
+
+      // Use fetch with AbortController for timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
+      const response = await fetch(fullUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json'
+        }
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        throw new Error(`Timeline Server responded with ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json() as any
+      
+      const applications = data.entities?.map((app: any) => ({
+        id: app.entity,
+        type: app.entitytype,
+        startTime: app.starttime ? new Date(app.starttime).toISOString() : null,
+        events: app.events?.map((event: any) => ({
+          eventType: event.eventtype,
+          timestamp: event.timestamp ? new Date(event.timestamp).toISOString() : null,
+          eventInfo: event.eventinfo
+        })) || [],
+        primaryFilters: app.primaryfilters || {},
+        otherInfo: app.otherinfo || {},
+        relatedEntities: app.relatedentities || {}
+      })) || []
+
+      this.credentialService.auditCredentialUsage(params.accountId, 'yarn:TimelineServer', true)
+
+      return {
+        success: true,
+        clusterId: params.clusterId,
+        masterDns: masterDns,
+        applications,
+        count: applications.length,
+        timelineServerUrl: timelineUrl,
+        queryParams: {
+          limit: params.limit,
+          windowStart: params.windowStart,
+          windowEnd: params.windowEnd
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'yarn:TimelineServer', false)
+      logger.error('Failed to get YARN applications from Timeline Server', { 
+        accountId: params.accountId,
+        clusterId: params.clusterId,
+        error: error.message
+      })
+      
+      if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+        throw createError('Unable to connect to YARN Timeline Server. Ensure the cluster is running and Timeline Server is accessible on port 8188.', 503)
+      } else if (error.message.includes('timeout')) {
+        throw createError('Timeline Server request timed out. The server may be overloaded or unresponsive.', 504)
+      } else {
+        throw createError(`Failed to get YARN applications: ${error.message}`, 500)
+      }
+    }
+  }
+
+  /**
+   * Get specific YARN application details from Timeline Server
+   */
+  async getEMRYarnApplicationDetails(params: {
+    accountId: string
+    clusterId: string
+    applicationId: string
+  }): Promise<any> {
+    logger.info('Getting YARN application details', { 
+      accountId: params.accountId,
+      clusterId: params.clusterId,
+      applicationId: params.applicationId
+    })
+
+    try {
+      // First get cluster info to get master DNS
+      const clusterInfo = await this.describeEMRCluster({
+        accountId: params.accountId,
+        clusterId: params.clusterId
+      })
+
+      if (!clusterInfo.cluster.masterPublicDnsName) {
+        throw createError('Cluster does not have a public DNS name', 400)
+      }
+
+      const masterDns = clusterInfo.cluster.masterPublicDnsName
+      const timelineUrl = `http://${masterDns}:8188/ws/v1/timeline/YARN_APPLICATION/${params.applicationId}`
+
+      // Use fetch with AbortController for timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
+      const response = await fetch(timelineUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json'
+        }
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw createError(`Application ${params.applicationId} not found in Timeline Server`, 404)
+        }
+        throw new Error(`Timeline Server responded with ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      
+      this.credentialService.auditCredentialUsage(params.accountId, 'yarn:TimelineServer', true)
+
+      return {
+        success: true,
+        clusterId: params.clusterId,
+        applicationId: params.applicationId,
+        application: data
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'yarn:TimelineServer', false)
+      logger.error('Failed to get YARN application details', { 
+        accountId: params.accountId,
+        clusterId: params.clusterId,
+        applicationId: params.applicationId,
+        error: error.message
+      })
+      
+      throw createError(`Failed to get application details: ${error.message}`, error.statusCode || 500)
     }
   }
 }

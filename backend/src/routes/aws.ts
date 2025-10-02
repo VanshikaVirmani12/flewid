@@ -1,9 +1,11 @@
 import { Router } from 'express'
 import { asyncHandler } from '../middleware/errorHandler'
 import { AWSService } from '../services/AWSService'
+import { AWSCredentialService } from '../services/AWSCredentialService'
 
 const router = Router()
 const awsService = new AWSService()
+const credentialService = new AWSCredentialService()
 
 // GET /api/aws/health - AWS service health check
 router.get('/health', asyncHandler(async (req, res) => {
@@ -45,6 +47,12 @@ router.post('/s3/get', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// POST /api/aws/s3/explore - Explore S3 location (folder or object)
+router.post('/s3/explore', asyncHandler(async (req, res) => {
+  const result = await awsService.exploreS3Location(req.body)
+  res.json(result)
+}))
+
 // POST /api/aws/lambda/invoke - Invoke Lambda function
 router.post('/lambda/invoke', asyncHandler(async (req, res) => {
   const result = await awsService.invokeLambda(req.body)
@@ -72,6 +80,12 @@ router.post('/emr/clusters', asyncHandler(async (req, res) => {
     case 'addStep':
       result = await awsService.addEMRSteps(params)
       break
+    case 'getYarnApplications':
+      result = await awsService.getEMRYarnApplications(params)
+      break
+    case 'getYarnApplicationDetails':
+      result = await awsService.getEMRYarnApplicationDetails(params)
+      break
     default:
       return res.status(400).json({
         success: false,
@@ -98,6 +112,42 @@ router.post('/emr/steps/add', asyncHandler(async (req, res) => {
 router.post('/emr/steps/list', asyncHandler(async (req, res) => {
   const result = await awsService.listEMRSteps(req.body)
   res.json(result)
+}))
+
+// GET /api/aws/credentials/status - Check credential status
+router.get('/credentials/status', asyncHandler(async (req, res) => {
+  const status = await credentialService.checkCredentialStatus()
+  res.json(status)
+}))
+
+// POST /api/aws/credentials/clear-cache - Clear credential cache
+router.post('/credentials/clear-cache', asyncHandler(async (req, res) => {
+  const { accountId } = req.body
+  credentialService.clearCredentialsCache(accountId)
+  res.json({
+    success: true,
+    message: accountId ? `Cleared cache for account ${accountId}` : 'Cleared all cached credentials'
+  })
+}))
+
+// POST /api/aws/credentials/validate - Validate current credentials
+router.post('/credentials/validate', asyncHandler(async (req, res) => {
+  try {
+    const credentials = await credentialService.getLocalCredentials()
+    const isValid = await credentialService.validateCredentials(credentials)
+    
+    res.json({
+      success: true,
+      isValid,
+      message: isValid ? 'Credentials are valid' : 'Credentials are invalid or expired'
+    })
+  } catch (error: any) {
+    res.status(401).json({
+      success: false,
+      isValid: false,
+      error: error.message
+    })
+  }
 }))
 
 export default router
