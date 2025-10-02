@@ -11,6 +11,7 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.901.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.462.0",
     "@aws-sdk/client-dynamodb": "^3.462.0",
     "@aws-sdk/client-emr": "^3.893.0",

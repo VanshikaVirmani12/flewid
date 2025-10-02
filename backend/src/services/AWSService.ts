@@ -1,4 +1,5 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
+import { CloudWatchClient, DescribeAlarmsCommand, DescribeAlarmHistoryCommand } from '@aws-sdk/client-cloudwatch'
 import { DynamoDBClient, QueryCommand, GetItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb'
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
 import { LambdaClient, InvokeCommand, GetFunctionCommand, UpdateFunctionCodeCommand, PublishVersionCommand, ListVersionsByFunctionCommand, GetFunctionConfigurationCommand } from '@aws-sdk/client-lambda'
@@ -2432,6 +2433,470 @@ export class AWSService {
       }
       
       throw createError(`Failed to list Lambda function versions: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * List CloudWatch alarms
+   */
+  async listCloudWatchAlarms(params: {
+    accountId: string
+    stateValue?: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA'
+    actionPrefix?: string
+    alarmNamePrefix?: string
+    maxRecords?: number
+  }): Promise<any> {
+    logger.info('Listing CloudWatch alarms', { 
+      accountId: params.accountId,
+      stateValue: params.stateValue,
+      alarmNamePrefix: params.alarmNamePrefix,
+      maxRecords: params.maxRecords
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create CloudWatch client with local credentials
+        const client = new CloudWatchClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Build describe alarms parameters
+        const describeParams: any = {
+          MaxRecords: params.maxRecords || 100
+        }
+
+        if (params.stateValue) {
+          describeParams.StateValue = params.stateValue
+        }
+
+        if (params.actionPrefix) {
+          describeParams.ActionPrefix = params.actionPrefix
+        }
+
+        if (params.alarmNamePrefix) {
+          describeParams.AlarmNamePrefix = params.alarmNamePrefix
+        }
+
+        // List alarms
+        const command = new DescribeAlarmsCommand(describeParams)
+        const response = await client.send(command)
+        
+        const alarms = response.MetricAlarms?.map(alarm => ({
+          alarmName: alarm.AlarmName,
+          alarmArn: alarm.AlarmArn,
+          alarmDescription: alarm.AlarmDescription,
+          alarmConfigurationUpdatedTimestamp: alarm.AlarmConfigurationUpdatedTimestamp?.toISOString(),
+          actionsEnabled: alarm.ActionsEnabled,
+          okActions: alarm.OKActions || [],
+          alarmActions: alarm.AlarmActions || [],
+          insufficientDataActions: alarm.InsufficientDataActions || [],
+          stateValue: alarm.StateValue,
+          stateReason: alarm.StateReason,
+          stateReasonData: alarm.StateReasonData,
+          stateUpdatedTimestamp: alarm.StateUpdatedTimestamp?.toISOString(),
+          metricName: alarm.MetricName,
+          namespace: alarm.Namespace,
+          statistic: alarm.Statistic,
+          extendedStatistic: alarm.ExtendedStatistic,
+          dimensions: alarm.Dimensions?.map(dim => ({
+            name: dim.Name,
+            value: dim.Value
+          })) || [],
+          period: alarm.Period,
+          unit: alarm.Unit,
+          evaluationPeriods: alarm.EvaluationPeriods,
+          datapointsToAlarm: alarm.DatapointsToAlarm,
+          threshold: alarm.Threshold,
+          comparisonOperator: alarm.ComparisonOperator,
+          treatMissingData: alarm.TreatMissingData,
+          evaluateLowSampleCountPercentile: alarm.EvaluateLowSampleCountPercentile,
+          metrics: alarm.Metrics?.map(metric => ({
+            id: metric.Id,
+            returnData: metric.ReturnData,
+            metricStat: metric.MetricStat ? {
+              metric: {
+                metricName: metric.MetricStat.Metric?.MetricName,
+                namespace: metric.MetricStat.Metric?.Namespace,
+                dimensions: metric.MetricStat.Metric?.Dimensions?.map(dim => ({
+                  name: dim.Name,
+                  value: dim.Value
+                })) || []
+              },
+              period: metric.MetricStat.Period,
+              stat: metric.MetricStat.Stat,
+              unit: metric.MetricStat.Unit
+            } : undefined,
+            expression: metric.Expression,
+            label: metric.Label,
+            accountId: metric.AccountId,
+            period: metric.Period
+          })) || [],
+          thresholdMetricId: alarm.ThresholdMetricId
+        })) || []
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', true)
+
+        logger.info('CloudWatch alarms listed', {
+          accountId: params.accountId,
+          count: alarms.length,
+          stateValue: params.stateValue
+        })
+
+        return {
+          success: true,
+          alarms,
+          count: alarms.length,
+          nextToken: response.NextToken,
+          filters: {
+            stateValue: params.stateValue,
+            alarmNamePrefix: params.alarmNamePrefix,
+            actionPrefix: params.actionPrefix
+          }
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create CloudWatch client
+        const client = new CloudWatchClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Build describe alarms parameters
+        const describeParams: any = {
+          MaxRecords: params.maxRecords || 100
+        }
+
+        if (params.stateValue) {
+          describeParams.StateValue = params.stateValue
+        }
+
+        if (params.actionPrefix) {
+          describeParams.ActionPrefix = params.actionPrefix
+        }
+
+        if (params.alarmNamePrefix) {
+          describeParams.AlarmNamePrefix = params.alarmNamePrefix
+        }
+
+        // List alarms
+        const command = new DescribeAlarmsCommand(describeParams)
+        const response = await client.send(command)
+        
+        const alarms = response.MetricAlarms?.map(alarm => ({
+          alarmName: alarm.AlarmName,
+          alarmArn: alarm.AlarmArn,
+          alarmDescription: alarm.AlarmDescription,
+          alarmConfigurationUpdatedTimestamp: alarm.AlarmConfigurationUpdatedTimestamp?.toISOString(),
+          actionsEnabled: alarm.ActionsEnabled,
+          okActions: alarm.OKActions || [],
+          alarmActions: alarm.AlarmActions || [],
+          insufficientDataActions: alarm.InsufficientDataActions || [],
+          stateValue: alarm.StateValue,
+          stateReason: alarm.StateReason,
+          stateReasonData: alarm.StateReasonData,
+          stateUpdatedTimestamp: alarm.StateUpdatedTimestamp?.toISOString(),
+          metricName: alarm.MetricName,
+          namespace: alarm.Namespace,
+          statistic: alarm.Statistic,
+          extendedStatistic: alarm.ExtendedStatistic,
+          dimensions: alarm.Dimensions?.map(dim => ({
+            name: dim.Name,
+            value: dim.Value
+          })) || [],
+          period: alarm.Period,
+          unit: alarm.Unit,
+          evaluationPeriods: alarm.EvaluationPeriods,
+          datapointsToAlarm: alarm.DatapointsToAlarm,
+          threshold: alarm.Threshold,
+          comparisonOperator: alarm.ComparisonOperator,
+          treatMissingData: alarm.TreatMissingData,
+          evaluateLowSampleCountPercentile: alarm.EvaluateLowSampleCountPercentile,
+          thresholdMetricId: alarm.ThresholdMetricId
+        })) || []
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', true)
+
+        return {
+          success: true,
+          alarms,
+          count: alarms.length,
+          nextToken: response.NextToken,
+          filters: {
+            stateValue: params.stateValue,
+            alarmNamePrefix: params.alarmNamePrefix,
+            actionPrefix: params.actionPrefix
+          }
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', false)
+      logger.error('Failed to list CloudWatch alarms', { 
+        accountId: params.accountId,
+        error: error.message
+      })
+      
+      if (error.name === 'InvalidParameterValueException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else if (error.name === 'UnrecognizedClientException' || error.name === 'InvalidClientTokenId') {
+        throw createError('AWS credentials are invalid or not configured', 401)
+      } else {
+        throw createError(`Failed to list CloudWatch alarms: ${error.message}`, 500)
+      }
+    }
+  }
+
+  /**
+   * Get CloudWatch alarm details and history
+   */
+  async getCloudWatchAlarmDetails(params: {
+    accountId: string
+    alarmName: string
+    includeHistory?: boolean
+    historyItemType?: 'ConfigurationUpdate' | 'StateUpdate' | 'Action'
+    startDate?: string
+    endDate?: string
+    maxRecords?: number
+  }): Promise<any> {
+    logger.info('Getting CloudWatch alarm details', { 
+      accountId: params.accountId,
+      alarmName: params.alarmName,
+      includeHistory: params.includeHistory
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create CloudWatch client with local credentials
+        const client = new CloudWatchClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Get alarm details
+        const describeCommand = new DescribeAlarmsCommand({
+          AlarmNames: [params.alarmName]
+        })
+
+        const describeResponse = await client.send(describeCommand)
+        
+        if (!describeResponse.MetricAlarms || describeResponse.MetricAlarms.length === 0) {
+          throw createError(`Alarm '${params.alarmName}' not found`, 404)
+        }
+
+        const alarm = describeResponse.MetricAlarms[0]
+        
+        let alarmHistory: any[] = []
+        
+        // Get alarm history if requested
+        if (params.includeHistory) {
+          const historyParams: any = {
+            AlarmName: params.alarmName,
+            MaxRecords: params.maxRecords || 50
+          }
+
+          if (params.historyItemType) {
+            historyParams.HistoryItemType = params.historyItemType
+          }
+
+          if (params.startDate) {
+            historyParams.StartDate = new Date(params.startDate)
+          }
+
+          if (params.endDate) {
+            historyParams.EndDate = new Date(params.endDate)
+          }
+
+          const historyCommand = new DescribeAlarmHistoryCommand(historyParams)
+          const historyResponse = await client.send(historyCommand)
+          
+          alarmHistory = historyResponse.AlarmHistoryItems?.map(item => ({
+            alarmName: item.AlarmName,
+            timestamp: item.Timestamp?.toISOString(),
+            historyItemType: item.HistoryItemType,
+            historySummary: item.HistorySummary,
+            historyData: item.HistoryData
+          })) || []
+        }
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', true)
+        if (params.includeHistory) {
+          this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarmHistory', true)
+        }
+
+        const alarmDetails = {
+          alarmName: alarm.AlarmName,
+          alarmArn: alarm.AlarmArn,
+          alarmDescription: alarm.AlarmDescription,
+          alarmConfigurationUpdatedTimestamp: alarm.AlarmConfigurationUpdatedTimestamp?.toISOString(),
+          actionsEnabled: alarm.ActionsEnabled,
+          okActions: alarm.OKActions || [],
+          alarmActions: alarm.AlarmActions || [],
+          insufficientDataActions: alarm.InsufficientDataActions || [],
+          stateValue: alarm.StateValue,
+          stateReason: alarm.StateReason,
+          stateReasonData: alarm.StateReasonData,
+          stateUpdatedTimestamp: alarm.StateUpdatedTimestamp?.toISOString(),
+          metricName: alarm.MetricName,
+          namespace: alarm.Namespace,
+          statistic: alarm.Statistic,
+          extendedStatistic: alarm.ExtendedStatistic,
+          dimensions: alarm.Dimensions?.map(dim => ({
+            name: dim.Name,
+            value: dim.Value
+          })) || [],
+          period: alarm.Period,
+          unit: alarm.Unit,
+          evaluationPeriods: alarm.EvaluationPeriods,
+          datapointsToAlarm: alarm.DatapointsToAlarm,
+          threshold: alarm.Threshold,
+          comparisonOperator: alarm.ComparisonOperator,
+          treatMissingData: alarm.TreatMissingData,
+          evaluateLowSampleCountPercentile: alarm.EvaluateLowSampleCountPercentile,
+          metrics: alarm.Metrics?.map(metric => ({
+            id: metric.Id,
+            returnData: metric.ReturnData,
+            metricStat: metric.MetricStat ? {
+              metric: {
+                metricName: metric.MetricStat.Metric?.MetricName,
+                namespace: metric.MetricStat.Metric?.Namespace,
+                dimensions: metric.MetricStat.Metric?.Dimensions?.map(dim => ({
+                  name: dim.Name,
+                  value: dim.Value
+                })) || []
+              },
+              period: metric.MetricStat.Period,
+              stat: metric.MetricStat.Stat,
+              unit: metric.MetricStat.Unit
+            } : undefined,
+            expression: metric.Expression,
+            label: metric.Label,
+            accountId: metric.AccountId,
+            period: metric.Period
+          })) || [],
+          thresholdMetricId: alarm.ThresholdMetricId
+        }
+
+        return {
+          success: true,
+          alarm: alarmDetails,
+          history: alarmHistory,
+          historyCount: alarmHistory.length,
+          includeHistory: params.includeHistory
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create CloudWatch client
+        const client = new CloudWatchClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Get alarm details
+        const describeCommand = new DescribeAlarmsCommand({
+          AlarmNames: [params.alarmName]
+        })
+
+        const describeResponse = await client.send(describeCommand)
+        
+        if (!describeResponse.MetricAlarms || describeResponse.MetricAlarms.length === 0) {
+          throw createError(`Alarm '${params.alarmName}' not found`, 404)
+        }
+
+        const alarm = describeResponse.MetricAlarms[0]
+        
+        let alarmHistory: any[] = []
+        
+        // Get alarm history if requested
+        if (params.includeHistory) {
+          const historyParams: any = {
+            AlarmName: params.alarmName,
+            MaxRecords: params.maxRecords || 50
+          }
+
+          if (params.historyItemType) {
+            historyParams.HistoryItemType = params.historyItemType
+          }
+
+          if (params.startDate) {
+            historyParams.StartDate = new Date(params.startDate)
+          }
+
+          if (params.endDate) {
+            historyParams.EndDate = new Date(params.endDate)
+          }
+
+          const historyCommand = new DescribeAlarmHistoryCommand(historyParams)
+          const historyResponse = await client.send(historyCommand)
+          
+          alarmHistory = historyResponse.AlarmHistoryItems?.map(item => ({
+            alarmName: item.AlarmName,
+            timestamp: item.Timestamp?.toISOString(),
+            historyItemType: item.HistoryItemType,
+            historySummary: item.HistorySummary,
+            historyData: item.HistoryData
+          })) || []
+        }
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', true)
+        if (params.includeHistory) {
+          this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarmHistory', true)
+        }
+
+        return {
+          success: true,
+          alarm: alarm,
+          history: alarmHistory,
+          historyCount: alarmHistory.length,
+          includeHistory: params.includeHistory
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', false)
+      logger.error('Failed to get CloudWatch alarm details', { 
+        accountId: params.accountId,
+        alarmName: params.alarmName,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFound') {
+        throw createError(`Alarm '${params.alarmName}' not found`, 404)
+      } else if (error.name === 'InvalidParameterValueException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else if (error.name === 'UnrecognizedClientException' || error.name === 'InvalidClientTokenId') {
+        throw createError('AWS credentials are invalid or not configured', 401)
+      } else {
+        throw createError(`Failed to get CloudWatch alarm details: ${error.message}`, 500)
+      }
     }
   }
 }

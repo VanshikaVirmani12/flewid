@@ -191,4 +191,16 @@ router.post('/credentials/validate', asyncHandler(async (req, res) => {
   }
 }))
 
+// POST /api/aws/cloudwatch/alarms - List CloudWatch alarms
+router.post('/cloudwatch/alarms', asyncHandler(async (req, res) => {
+  const result = await awsService.listCloudWatchAlarms(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/cloudwatch/alarm/details - Get CloudWatch alarm details
+router.post('/cloudwatch/alarm/details', asyncHandler(async (req, res) => {
+  const result = await awsService.getCloudWatchAlarmDetails(req.body)
+  res.json(result)
+}))
+
 export default router
