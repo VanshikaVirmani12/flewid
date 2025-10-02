@@ -55,11 +55,15 @@ const createNodeTypes = (
     return <DynamoDBNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
   })
   
+  const LambdaNodeWrapper = React.memo((props: any) => {
+    return <LambdaNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
   return {
     cloudwatch: CloudWatchNodeWrapper,
     dynamodb: DynamoDBNodeWrapper,
     s3: S3NodeWrapper,
-    lambda: LambdaNode,
+    lambda: LambdaNodeWrapper,
     emr: EMRNodeWrapper,
     condition: ConditionNode,
     transform: TransformNode,
@@ -497,6 +501,101 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+  const executeLambdaNode = async (node: Node) => {
+    const config = node.data.config
+    
+    if (!config.functionName) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: 'Lambda node not properly configured. Please set function name.',
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+
+    try {
+      const startTime = Date.now()
+      
+      const requestBody = {
+        accountId: 'dev-account-1',
+        functionName: config.functionName,
+        payload: config.payload || undefined,
+        invocationType: config.invocationType || 'RequestResponse',
+        logType: config.logType || 'None'
+      }
+      
+      const response = await fetch('/api/aws/lambda/invoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+      const duration = Date.now() - startTime
+
+      if (response.ok && result.success) {
+        let output = `Lambda Function Invocation Results:\n`
+        output += `Function: ${config.functionName}\n`
+        output += `Invocation Type: ${result.invocationType}\n`
+        output += `Status Code: ${result.statusCode}\n`
+        output += `Duration: ${result.duration}ms\n`
+        
+        if (result.functionError) {
+          output += `Function Error: ${result.functionError}\n`
+        }
+        
+        if (result.executedVersion) {
+          output += `Executed Version: ${result.executedVersion}\n`
+        }
+        
+        output += `\n${'='.repeat(50)}\n`
+        
+        if (result.payload !== null && result.payload !== undefined) {
+          output += `Response Payload:\n`
+          if (typeof result.payload === 'object') {
+            output += JSON.stringify(result.payload, null, 2)
+          } else {
+            output += result.payload
+          }
+          output += `\n`
+        }
+        
+        if (result.logResult && config.logType === 'Tail') {
+          output += `\nExecution Logs:\n`
+          output += `${'-'.repeat(30)}\n`
+          output += result.logResult
+        }
+
+        return {
+          nodeId: node.id,
+          status: result.functionError ? 'error' as const : 'success' as const,
+          output,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        return {
+          nodeId: node.id,
+          status: 'error' as const,
+          output: `Lambda invocation failed: ${result.message || 'Unknown error'}`,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    } catch (error: any) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: `Lambda invocation error: ${error.message}`,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+  }
+
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
       message.warning('Please add some nodes to execute the workflow')
@@ -532,6 +631,9 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
             break
           case 'emr':
             result = await executeEMRNode(node)
+            break
+          case 'lambda':
+            result = await executeLambdaNode(node)
             break
           default:
             // Mock execution for other node types

@@ -53,9 +53,50 @@ router.post('/s3/explore', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// GET /api/aws/lambda/functions - List Lambda functions
+router.get('/lambda/functions', asyncHandler(async (req, res) => {
+  const { accountId, functionName, maxItems } = req.query
+  const result = await awsService.listLambdaFunctions({
+    accountId: accountId as string || 'dev-account-1',
+    functionName: functionName as string,
+    maxItems: maxItems ? parseInt(maxItems as string) : undefined
+  })
+  res.json(result)
+}))
+
+// POST /api/aws/lambda/functions/list - List Lambda functions (POST version for complex queries)
+router.post('/lambda/functions/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listLambdaFunctions(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/lambda/function/get - Get Lambda function details
+router.post('/lambda/function/get', asyncHandler(async (req, res) => {
+  const result = await awsService.getLambdaFunction(req.body)
+  res.json(result)
+}))
+
 // POST /api/aws/lambda/invoke - Invoke Lambda function
 router.post('/lambda/invoke', asyncHandler(async (req, res) => {
   const result = await awsService.invokeLambda(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/lambda/update-code - Update Lambda function code from S3
+router.post('/lambda/update-code', asyncHandler(async (req, res) => {
+  const result = await awsService.updateLambdaCodeFromS3(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/lambda/publish-version - Publish Lambda function version
+router.post('/lambda/publish-version', asyncHandler(async (req, res) => {
+  const result = await awsService.publishLambdaVersion(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/lambda/versions - List Lambda function versions
+router.post('/lambda/versions', asyncHandler(async (req, res) => {
+  const result = await awsService.listLambdaVersions(req.body)
   res.json(result)
 }))
 

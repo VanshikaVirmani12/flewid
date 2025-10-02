@@ -1,7 +1,7 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
 import { DynamoDBClient, QueryCommand, GetItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb'
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
-import { LambdaClient, InvokeCommand, GetFunctionCommand } from '@aws-sdk/client-lambda'
+import { LambdaClient, InvokeCommand, GetFunctionCommand, UpdateFunctionCodeCommand, PublishVersionCommand, ListVersionsByFunctionCommand, GetFunctionConfigurationCommand } from '@aws-sdk/client-lambda'
 import { EMRClient, ListClustersCommand, DescribeClusterCommand, AddJobFlowStepsCommand, ListStepsCommand, DescribeStepCommand, ClusterState, StepState, ActionOnFailure } from '@aws-sdk/client-emr'
 import { logger } from '../utils/logger'
 import { createError } from '../middleware/errorHandler'
@@ -828,17 +828,431 @@ export class AWSService {
     }
   }
 
-  async invokeLambda(params: any): Promise<any> {
-    logger.info('Invoking Lambda function', { params })
-    
-    // Mock implementation
-    return {
-      statusCode: 200,
-      payload: {
-        message: 'Lambda function executed successfully',
-        result: 'Sample result data'
-      },
-      executionTime: 150
+  /**
+   * List Lambda functions
+   */
+  async listLambdaFunctions(params: {
+    accountId: string
+    functionName?: string
+    maxItems?: number
+  }): Promise<any> {
+    logger.info('Listing Lambda functions', { 
+      accountId: params.accountId,
+      functionName: params.functionName,
+      maxItems: params.maxItems
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create Lambda client with local credentials
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Import ListFunctionsCommand
+        const { ListFunctionsCommand } = await import('@aws-sdk/client-lambda')
+        
+        // List functions
+        const command = new ListFunctionsCommand({
+          MaxItems: params.maxItems || 50
+        })
+
+        const response = await client.send(command)
+        
+        let functions = response.Functions?.map(func => ({
+          functionName: func.FunctionName,
+          functionArn: func.FunctionArn,
+          runtime: func.Runtime,
+          role: func.Role,
+          handler: func.Handler,
+          codeSize: func.CodeSize,
+          description: func.Description,
+          timeout: func.Timeout,
+          memorySize: func.MemorySize,
+          lastModified: func.LastModified,
+          codeSha256: func.CodeSha256,
+          version: func.Version,
+          environment: func.Environment,
+          deadLetterConfig: func.DeadLetterConfig,
+          kmsKeyArn: func.KMSKeyArn,
+          tracingConfig: func.TracingConfig,
+          layers: func.Layers?.map(layer => ({
+            arn: layer.Arn,
+            codeSize: layer.CodeSize
+          })) || [],
+          state: func.State,
+          stateReason: func.StateReason,
+          lastUpdateStatus: func.LastUpdateStatus,
+          packageType: func.PackageType,
+          architectures: func.Architectures
+        })) || []
+
+        // Filter by function name if provided
+        if (params.functionName) {
+          functions = functions.filter(func => 
+            func.functionName?.toLowerCase().includes(params.functionName!.toLowerCase())
+          )
+        }
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:ListFunctions', true)
+
+        return {
+          success: true,
+          functions,
+          count: functions.length,
+          filters: {
+            functionName: params.functionName
+          }
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create Lambda client
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Similar implementation as above
+        const { ListFunctionsCommand } = await import('@aws-sdk/client-lambda')
+        
+        const command = new ListFunctionsCommand({
+          MaxItems: params.maxItems || 50
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:ListFunctions', true)
+
+        return {
+          success: true,
+          functions: response.Functions || []
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'lambda:ListFunctions', false)
+      logger.error('Failed to list Lambda functions', { 
+        accountId: params.accountId,
+        error: error.message
+      })
+      
+      throw createError(`Failed to list Lambda functions: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * Get Lambda function details
+   */
+  async getLambdaFunction(params: {
+    accountId: string
+    functionName: string
+  }): Promise<any> {
+    logger.info('Getting Lambda function details', { 
+      accountId: params.accountId,
+      functionName: params.functionName
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create Lambda client with local credentials
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Get function details
+        const command = new GetFunctionCommand({
+          FunctionName: params.functionName
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:GetFunction', true)
+
+        return {
+          success: true,
+          function: {
+            configuration: response.Configuration,
+            code: response.Code,
+            tags: response.Tags,
+            concurrency: response.Concurrency
+          }
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create Lambda client
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        const command = new GetFunctionCommand({
+          FunctionName: params.functionName
+        })
+
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:GetFunction', true)
+
+        return {
+          success: true,
+          function: response
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'lambda:GetFunction', false)
+      logger.error('Failed to get Lambda function', { 
+        accountId: params.accountId,
+        functionName: params.functionName,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Lambda function '${params.functionName}' not found`, 404)
+      }
+      
+      throw createError(`Failed to get Lambda function: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * Invoke Lambda function
+   */
+  async invokeLambda(params: {
+    accountId: string
+    functionName: string
+    payload?: string
+    invocationType?: 'RequestResponse' | 'Event' | 'DryRun'
+    logType?: 'None' | 'Tail'
+    clientContext?: string
+    qualifier?: string
+  }): Promise<any> {
+    logger.info('Invoking Lambda function', { 
+      accountId: params.accountId,
+      functionName: params.functionName,
+      invocationType: params.invocationType,
+      logType: params.logType
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create Lambda client with local credentials
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Prepare payload
+        let payloadBuffer: Uint8Array | undefined
+        if (params.payload && params.payload.trim() !== '') {
+          try {
+            // Validate JSON if provided
+            JSON.parse(params.payload.trim())
+            payloadBuffer = new TextEncoder().encode(params.payload.trim())
+          } catch (error) {
+            throw createError('Invalid JSON payload provided', 400)
+          }
+        }
+
+        // Invoke function - only include Payload if we have one
+        const invokeParams: any = {
+          FunctionName: params.functionName,
+          InvocationType: params.invocationType || 'RequestResponse',
+          LogType: params.logType || 'None'
+        }
+
+        if (payloadBuffer) {
+          invokeParams.Payload = payloadBuffer
+        }
+
+        if (params.clientContext) {
+          invokeParams.ClientContext = params.clientContext
+        }
+
+        if (params.qualifier) {
+          invokeParams.Qualifier = params.qualifier
+        }
+
+        const command = new InvokeCommand(invokeParams)
+
+        const startTime = Date.now()
+        const response = await client.send(command)
+        const duration = Date.now() - startTime
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:InvokeFunction', true)
+
+        // Parse response payload
+        let responsePayload: any = null
+        if (response.Payload) {
+          try {
+            const payloadString = new TextDecoder().decode(response.Payload)
+            responsePayload = JSON.parse(payloadString)
+          } catch (error) {
+            // If not JSON, return as string
+            responsePayload = new TextDecoder().decode(response.Payload)
+          }
+        }
+
+        // Parse log result if available
+        let logResult: string | null = null
+        if (response.LogResult) {
+          try {
+            logResult = Buffer.from(response.LogResult, 'base64').toString('utf-8')
+          } catch (error) {
+            logResult = response.LogResult
+          }
+        }
+
+        return {
+          success: true,
+          statusCode: response.StatusCode,
+          functionError: response.FunctionError,
+          logResult: logResult,
+          payload: responsePayload,
+          executedVersion: response.ExecutedVersion,
+          duration: duration,
+          invocationType: params.invocationType || 'RequestResponse',
+          timestamp: new Date().toISOString()
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create Lambda client
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Similar implementation as above
+        let payloadBuffer: Uint8Array | undefined
+        if (params.payload && params.payload.trim() !== '') {
+          try {
+            JSON.parse(params.payload.trim())
+            payloadBuffer = new TextEncoder().encode(params.payload.trim())
+          } catch (error) {
+            throw createError('Invalid JSON payload provided', 400)
+          }
+        }
+
+        // Invoke function - only include Payload if we have one
+        const invokeParams: any = {
+          FunctionName: params.functionName,
+          InvocationType: params.invocationType || 'RequestResponse',
+          LogType: params.logType || 'None'
+        }
+
+        if (payloadBuffer) {
+          invokeParams.Payload = payloadBuffer
+        }
+
+        if (params.clientContext) {
+          invokeParams.ClientContext = params.clientContext
+        }
+
+        if (params.qualifier) {
+          invokeParams.Qualifier = params.qualifier
+        }
+
+        const command = new InvokeCommand(invokeParams)
+
+        const startTime = Date.now()
+        const response = await client.send(command)
+        const duration = Date.now() - startTime
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:InvokeFunction', true)
+
+        let responsePayload: any = null
+        if (response.Payload) {
+          try {
+            const payloadString = new TextDecoder().decode(response.Payload)
+            responsePayload = JSON.parse(payloadString)
+          } catch (error) {
+            responsePayload = new TextDecoder().decode(response.Payload)
+          }
+        }
+
+        let logResult: string | null = null
+        if (response.LogResult) {
+          try {
+            logResult = Buffer.from(response.LogResult, 'base64').toString('utf-8')
+          } catch (error) {
+            logResult = response.LogResult
+          }
+        }
+
+        return {
+          success: true,
+          statusCode: response.StatusCode,
+          functionError: response.FunctionError,
+          logResult: logResult,
+          payload: responsePayload,
+          executedVersion: response.ExecutedVersion,
+          duration: duration
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'lambda:InvokeFunction', false)
+      logger.error('Failed to invoke Lambda function', { 
+        accountId: params.accountId,
+        functionName: params.functionName,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Lambda function '${params.functionName}' not found`, 404)
+      } else if (error.name === 'InvalidParameterValueException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else if (error.name === 'TooManyRequestsException') {
+        throw createError('Too many requests. Please try again later.', 429)
+      } else if (error.name === 'ServiceException') {
+        throw createError('Lambda service error. Please try again later.', 503)
+      }
+      
+      throw createError(`Failed to invoke Lambda function: ${error.message}`, 500)
     }
   }
 
@@ -1572,6 +1986,452 @@ export class AWSService {
       })
       
       throw createError(`Failed to get application details: ${error.message}`, error.statusCode || 500)
+    }
+  }
+
+  /**
+   * Update Lambda function code from S3
+   */
+  async updateLambdaCodeFromS3(params: {
+    accountId: string
+    functionName: string
+    s3Bucket: string
+    s3Key: string
+    s3ObjectVersion?: string
+    dryRun?: boolean
+  }): Promise<any> {
+    logger.info('Updating Lambda function code from S3', { 
+      accountId: params.accountId,
+      functionName: params.functionName,
+      s3Bucket: params.s3Bucket,
+      s3Key: params.s3Key,
+      dryRun: params.dryRun
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create Lambda client with local credentials
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Validate S3 location format
+        if (!params.s3Bucket || !params.s3Key) {
+          throw createError('S3 bucket and key are required', 400)
+        }
+
+        // If dry run, just validate the function exists and return
+        if (params.dryRun) {
+          const getFunctionCommand = new GetFunctionConfigurationCommand({
+            FunctionName: params.functionName
+          })
+          
+          await client.send(getFunctionCommand)
+          
+          return {
+            success: true,
+            dryRun: true,
+            message: `Function '${params.functionName}' exists and can be updated`,
+            s3Location: `s3://${params.s3Bucket}/${params.s3Key}`
+          }
+        }
+
+        // Update function code
+        const updateParams: any = {
+          FunctionName: params.functionName,
+          S3Bucket: params.s3Bucket,
+          S3Key: params.s3Key
+        }
+
+        if (params.s3ObjectVersion) {
+          updateParams.S3ObjectVersion = params.s3ObjectVersion
+        }
+
+        const command = new UpdateFunctionCodeCommand(updateParams)
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:UpdateFunctionCode', true)
+
+        return {
+          success: true,
+          functionName: response.FunctionName,
+          functionArn: response.FunctionArn,
+          version: response.Version,
+          lastModified: response.LastModified,
+          codeSha256: response.CodeSha256,
+          codeSize: response.CodeSize,
+          state: response.State,
+          stateReason: response.StateReason,
+          lastUpdateStatus: response.LastUpdateStatus,
+          lastUpdateStatusReason: response.LastUpdateStatusReason,
+          s3Location: `s3://${params.s3Bucket}/${params.s3Key}`,
+          timestamp: new Date().toISOString()
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create Lambda client
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Similar implementation as above
+        if (!params.s3Bucket || !params.s3Key) {
+          throw createError('S3 bucket and key are required', 400)
+        }
+
+        if (params.dryRun) {
+          const getFunctionCommand = new GetFunctionConfigurationCommand({
+            FunctionName: params.functionName
+          })
+          
+          await client.send(getFunctionCommand)
+          
+          return {
+            success: true,
+            dryRun: true,
+            message: `Function '${params.functionName}' exists and can be updated`,
+            s3Location: `s3://${params.s3Bucket}/${params.s3Key}`
+          }
+        }
+
+        const updateParams: any = {
+          FunctionName: params.functionName,
+          S3Bucket: params.s3Bucket,
+          S3Key: params.s3Key
+        }
+
+        if (params.s3ObjectVersion) {
+          updateParams.S3ObjectVersion = params.s3ObjectVersion
+        }
+
+        const command = new UpdateFunctionCodeCommand(updateParams)
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:UpdateFunctionCode', true)
+
+        return {
+          success: true,
+          functionName: response.FunctionName,
+          functionArn: response.FunctionArn,
+          version: response.Version,
+          lastModified: response.LastModified,
+          codeSha256: response.CodeSha256,
+          codeSize: response.CodeSize,
+          state: response.State,
+          stateReason: response.StateReason,
+          lastUpdateStatus: response.LastUpdateStatus,
+          lastUpdateStatusReason: response.LastUpdateStatusReason,
+          s3Location: `s3://${params.s3Bucket}/${params.s3Key}`,
+          timestamp: new Date().toISOString()
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'lambda:UpdateFunctionCode', false)
+      logger.error('Failed to update Lambda function code', { 
+        accountId: params.accountId,
+        functionName: params.functionName,
+        s3Bucket: params.s3Bucket,
+        s3Key: params.s3Key,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Lambda function '${params.functionName}' not found`, 404)
+      } else if (error.name === 'InvalidParameterValueException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else if (error.name === 'CodeStorageExceededException') {
+        throw createError('Code storage limit exceeded', 413)
+      } else if (error.name === 'TooManyRequestsException') {
+        throw createError('Too many requests. Please try again later.', 429)
+      } else if (error.name === 'ResourceConflictException') {
+        throw createError('Function is being updated. Please wait and try again.', 409)
+      }
+      
+      throw createError(`Failed to update Lambda function code: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * Publish a new version of Lambda function
+   */
+  async publishLambdaVersion(params: {
+    accountId: string
+    functionName: string
+    description?: string
+    revisionId?: string
+  }): Promise<any> {
+    logger.info('Publishing Lambda function version', { 
+      accountId: params.accountId,
+      functionName: params.functionName,
+      description: params.description
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create Lambda client with local credentials
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Publish version
+        const publishParams: any = {
+          FunctionName: params.functionName
+        }
+
+        if (params.description) {
+          publishParams.Description = params.description
+        }
+
+        if (params.revisionId) {
+          publishParams.RevisionId = params.revisionId
+        }
+
+        const command = new PublishVersionCommand(publishParams)
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:PublishVersion', true)
+
+        return {
+          success: true,
+          functionName: response.FunctionName,
+          functionArn: response.FunctionArn,
+          version: response.Version,
+          description: response.Description,
+          lastModified: response.LastModified,
+          codeSha256: response.CodeSha256,
+          codeSize: response.CodeSize,
+          state: response.State,
+          stateReason: response.StateReason,
+          revisionId: response.RevisionId,
+          timestamp: new Date().toISOString()
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create Lambda client
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // Publish version
+        const publishParams: any = {
+          FunctionName: params.functionName
+        }
+
+        if (params.description) {
+          publishParams.Description = params.description
+        }
+
+        if (params.revisionId) {
+          publishParams.RevisionId = params.revisionId
+        }
+
+        const command = new PublishVersionCommand(publishParams)
+        const response = await client.send(command)
+        
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:PublishVersion', true)
+
+        return {
+          success: true,
+          functionName: response.FunctionName,
+          functionArn: response.FunctionArn,
+          version: response.Version,
+          description: response.Description,
+          lastModified: response.LastModified,
+          codeSha256: response.CodeSha256,
+          codeSize: response.CodeSize,
+          state: response.State,
+          stateReason: response.StateReason,
+          revisionId: response.RevisionId,
+          timestamp: new Date().toISOString()
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'lambda:PublishVersion', false)
+      logger.error('Failed to publish Lambda function version', { 
+        accountId: params.accountId,
+        functionName: params.functionName,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Lambda function '${params.functionName}' not found`, 404)
+      } else if (error.name === 'InvalidParameterValueException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else if (error.name === 'TooManyRequestsException') {
+        throw createError('Too many requests. Please try again later.', 429)
+      } else if (error.name === 'ResourceConflictException') {
+        throw createError('Function is being updated. Please wait and try again.', 409)
+      } else if (error.name === 'PreconditionFailedException') {
+        throw createError('Revision ID does not match. Function may have been updated by another process.', 412)
+      }
+      
+      throw createError(`Failed to publish Lambda function version: ${error.message}`, 500)
+    }
+  }
+
+  /**
+   * List versions of a Lambda function
+   */
+  async listLambdaVersions(params: {
+    accountId: string
+    functionName: string
+    maxItems?: number
+  }): Promise<any> {
+    logger.info('Listing Lambda function versions', { 
+      accountId: params.accountId,
+      functionName: params.functionName,
+      maxItems: params.maxItems
+    })
+
+    try {
+      // For local development, use local credentials
+      if (this.credentialService.shouldUseLocalCredentials()) {
+        const credentials = await this.credentialService.getLocalCredentials()
+        
+        // Create Lambda client with local credentials
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // List versions
+        const command = new ListVersionsByFunctionCommand({
+          FunctionName: params.functionName,
+          MaxItems: params.maxItems || 50
+        })
+
+        const response = await client.send(command)
+        
+        const versions = response.Versions?.map(version => ({
+          functionName: version.FunctionName,
+          functionArn: version.FunctionArn,
+          version: version.Version,
+          description: version.Description,
+          lastModified: version.LastModified,
+          codeSha256: version.CodeSha256,
+          codeSize: version.CodeSize,
+          state: version.State,
+          stateReason: version.StateReason,
+          revisionId: version.RevisionId,
+          runtime: version.Runtime,
+          timeout: version.Timeout,
+          memorySize: version.MemorySize,
+          handler: version.Handler
+        })) || []
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:ListVersionsByFunction', true)
+
+        return {
+          success: true,
+          functionName: params.functionName,
+          versions,
+          count: versions.length,
+          nextMarker: response.NextMarker
+        }
+      } else {
+        // Use role-based credentials for production
+        const account = await this.getAccountById(params.accountId)
+        const credentials = await this.credentialService.refreshCredentialsIfNeeded(account)
+        
+        // Create Lambda client
+        const client = new LambdaClient({
+          region: credentials.region,
+          credentials: {
+            accessKeyId: credentials.accessKeyId,
+            secretAccessKey: credentials.secretAccessKey,
+            sessionToken: credentials.sessionToken
+          }
+        })
+
+        // List versions
+        const command = new ListVersionsByFunctionCommand({
+          FunctionName: params.functionName,
+          MaxItems: params.maxItems || 50
+        })
+
+        const response = await client.send(command)
+        
+        const versions = response.Versions?.map(version => ({
+          functionName: version.FunctionName,
+          functionArn: version.FunctionArn,
+          version: version.Version,
+          description: version.Description,
+          lastModified: version.LastModified,
+          codeSha256: version.CodeSha256,
+          codeSize: version.CodeSize,
+          state: version.State,
+          stateReason: version.StateReason,
+          revisionId: version.RevisionId,
+          runtime: version.Runtime,
+          timeout: version.Timeout,
+          memorySize: version.MemorySize,
+          handler: version.Handler
+        })) || []
+
+        this.credentialService.auditCredentialUsage(params.accountId, 'lambda:ListVersionsByFunction', true)
+
+        return {
+          success: true,
+          functionName: params.functionName,
+          versions,
+          count: versions.length,
+          nextMarker: response.NextMarker
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'lambda:ListVersionsByFunction', false)
+      logger.error('Failed to list Lambda function versions', { 
+        accountId: params.accountId,
+        functionName: params.functionName,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Lambda function '${params.functionName}' not found`, 404)
+      } else if (error.name === 'InvalidParameterValueException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      }
+      
+      throw createError(`Failed to list Lambda function versions: ${error.message}`, 500)
     }
   }
 }
