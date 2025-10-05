@@ -732,6 +732,7 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
       message.warning('Please add some nodes to execute the workflow')
