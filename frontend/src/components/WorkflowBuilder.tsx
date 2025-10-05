@@ -23,11 +23,13 @@ import 'reactflow/dist/style.css'
 
 import NodeSidebar from './NodeSidebar'
 import ExecutionPanel from './ExecutionPanel'
+import ResizablePanel from './ResizablePanel'
 import CloudWatchNode from './nodes/CloudWatchNode'
 import DynamoDBNode from './nodes/DynamoDBNode'
 import S3Node from './nodes/S3Node'
 import LambdaNode from './nodes/LambdaNode'
 import EMRNode from './nodes/EMRNode'
+import APIGatewayNode from './nodes/APIGatewayNode'
 import ConditionNode from './nodes/ConditionNode'
 import TransformNode from './nodes/TransformNode'
 
@@ -59,12 +61,17 @@ const createNodeTypes = (
     return <LambdaNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
   })
   
+  const APIGatewayNodeWrapper = React.memo((props: any) => {
+    return <APIGatewayNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
   return {
     cloudwatch: CloudWatchNodeWrapper,
     dynamodb: DynamoDBNodeWrapper,
     s3: S3NodeWrapper,
     lambda: LambdaNodeWrapper,
     emr: EMRNodeWrapper,
+    apigateway: APIGatewayNodeWrapper,
     condition: ConditionNode,
     transform: TransformNode,
   }
@@ -596,6 +603,135 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+  const executeAPIGatewayNode = async (node: Node) => {
+    const config = node.data.config
+    
+    if (!config.operation) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: 'API Gateway node not properly configured. Please set operation.',
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+
+    try {
+      const startTime = Date.now()
+      
+      const requestBody = {
+        accountId: 'dev-account-1',
+        operation: config.operation,
+        apiId: config.apiId,
+        stageName: config.stageName,
+        logGroup: config.logGroup,
+        startTime: config.startTime,
+        endTime: config.endTime,
+        limit: config.limit || 100
+      }
+      
+      const response = await fetch('/api/aws/apigateway/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+      const duration = Date.now() - startTime
+
+      if (response.ok && result.success) {
+        let output = `API Gateway ${config.operation} Results:\n`
+        
+        if (config.operation === 'access_logs') {
+          const logs = result.logs || []
+          const summary = result.summary || {}
+          
+          output += `API ID: ${config.apiId}\n`
+          output += `Stage: ${config.stageName || 'N/A'}\n`
+          output += `Log Group: ${config.logGroup}\n`
+          output += `Time Range: ${config.startTime || 'N/A'} to ${config.endTime || 'N/A'}\n`
+          output += `Total Log Entries: ${logs.length}\n`
+          
+          if (summary.requestCount) {
+            output += `Total Requests: ${summary.requestCount}\n`
+          }
+          if (summary.errorCount) {
+            output += `Error Count: ${summary.errorCount}\n`
+          }
+          if (summary.avgResponseTime) {
+            output += `Average Response Time: ${summary.avgResponseTime}ms\n`
+          }
+          
+          output += `\n${'='.repeat(50)}\n`
+          
+          if (logs.length > 0) {
+            output += `Recent Access Log Entries:\n`
+            logs.slice(0, 10).forEach((log: any) => {
+              output += `[${log.timestamp}] ${log.method} ${log.path}\n`
+              output += `Status: ${log.status}, Response Time: ${log.responseTime}ms\n`
+              if (log.error) {
+                output += `Error: ${log.error}\n`
+              }
+              output += `${'-'.repeat(30)}\n`
+            })
+            
+            if (logs.length > 10) {
+              output += `... and ${logs.length - 10} more entries\n`
+            }
+          } else {
+            output += `No access log entries found\n`
+          }
+        } else if (config.operation === 'request_tracing') {
+          output += `Request Tracing Analysis:\n`
+          output += `API ID: ${config.apiId}\n`
+          output += `Stage: ${config.stageName || 'N/A'}\n`
+          output += `Time Range: ${config.startTime || 'N/A'} to ${config.endTime || 'N/A'}\n\n`
+          output += `Note: This is a mock implementation. In a real scenario, this would:\n`
+          output += `- Integrate with AWS X-Ray for distributed tracing\n`
+          output += `- Show request flow through API Gateway stages\n`
+          output += `- Display latency breakdown by service\n`
+          output += `- Identify bottlenecks and performance issues\n`
+        } else if (config.operation === 'throttling_detection') {
+          output += `Throttling Detection Analysis:\n`
+          output += `API ID: ${config.apiId}\n`
+          output += `Stage: ${config.stageName || 'N/A'}\n`
+          output += `Time Range: ${config.startTime || 'N/A'} to ${config.endTime || 'N/A'}\n\n`
+          output += `Note: This is a mock implementation. In a real scenario, this would:\n`
+          output += `- Analyze CloudWatch metrics for throttling events\n`
+          output += `- Check 4XXError and 5XXError metrics\n`
+          output += `- Monitor usage plan limits and API key quotas\n`
+          output += `- Identify patterns in throttled requests\n`
+        }
+
+        return {
+          nodeId: node.id,
+          status: 'success' as const,
+          output,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        return {
+          nodeId: node.id,
+          status: 'error' as const,
+          output: `API Gateway ${config.operation} failed: ${result.message || 'Unknown error'}`,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    } catch (error: any) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: `API Gateway operation error: ${error.message}`,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+  }
+
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
       message.warning('Please add some nodes to execute the workflow')
@@ -634,6 +770,9 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
             break
           case 'lambda':
             result = await executeLambdaNode(node)
+            break
+          case 'apigateway':
+            result = await executeAPIGatewayNode(node)
             break
           default:
             // Mock execution for other node types
@@ -747,12 +886,17 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
         </Content>
 
         {/* Execution Panel */}
-        <Sider width={320} className="bg-white">
+        <ResizablePanel 
+          defaultWidth={320}
+          minWidth={250}
+          maxWidth={600}
+          position="right"
+        >
           <ExecutionPanel 
             isExecuting={isExecuting}
             results={executionResults}
           />
-        </Sider>
+        </ResizablePanel>
       </Layout>
     </div>
   )

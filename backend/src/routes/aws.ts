@@ -203,4 +203,22 @@ router.post('/cloudwatch/alarm/details', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// POST /api/aws/apigateway/apis - List API Gateway APIs
+router.post('/apigateway/apis', asyncHandler(async (req, res) => {
+  const result = await awsService.listAPIGatewayAPIs(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/apigateway/stages - List API Gateway stages
+router.post('/apigateway/stages', asyncHandler(async (req, res) => {
+  const result = await awsService.listAPIGatewayStages(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/apigateway/analyze - Analyze API Gateway
+router.post('/apigateway/analyze', asyncHandler(async (req, res) => {
+  const result = await awsService.analyzeAPIGateway(req.body)
+  res.json(result)
+}))
+
 export default router

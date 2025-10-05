@@ -9,6 +9,7 @@ import DynamoDBIcon from './icons/DynamoDBIcon'
 import S3Icon from './icons/S3Icon'
 import LambdaIcon from './icons/LambdaIcon'
 import EMRIcon from './icons/EMRIcon'
+import APIGatewayIcon from './icons/APIGatewayIcon'
 
 const { Title, Text } = Typography
 
@@ -78,6 +79,13 @@ const NodeSidebar: React.FC = () => {
       icon: <EMRIcon size={20} />,
       title: 'EMR',
       description: 'Run big data workloads',
+      color: 'inherit'
+    },
+    {
+      type: 'apigateway',
+      icon: <APIGatewayIcon size={20} />,
+      title: 'API Gateway',
+      description: 'Analyze API access logs and performance',
       color: 'inherit'
     }
   ]
