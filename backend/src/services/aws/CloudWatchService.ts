@@ -1,5 +1,5 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs'
-import { CloudWatchClient, DescribeAlarmsCommand, DescribeAlarmHistoryCommand } from '@aws-sdk/client-cloudwatch'
+import { CloudWatchClient, DescribeAlarmsCommand, DescribeAlarmHistoryCommand, GetMetricStatisticsCommand, ListMetricsCommand, Statistic } from '@aws-sdk/client-cloudwatch'
 import { BaseAWSService } from './BaseAWSService'
 import { AWSAccount } from '../AWSCredentialService'
 import { logger } from '../../utils/logger'
@@ -369,6 +369,175 @@ export class CloudWatchService extends BaseAWSService {
     } catch (error: any) {
       this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:DescribeAlarms', false)
       this.handleAWSError(error, 'CloudWatch get alarm details', params.alarmName)
+    }
+  }
+
+  /**
+   * Get CloudWatch metric statistics
+   */
+  async getMetricStatistics(params: {
+    accountId: string
+    namespace: string
+    metricName: string
+    dimensions?: Array<{ Name: string; Value: string }>
+    startTime: Date
+    endTime: Date
+    period: number
+    statistics: string[]
+  }, accounts: Map<string, AWSAccount>): Promise<any> {
+    logger.info('Getting CloudWatch metric statistics', { 
+      accountId: params.accountId,
+      namespace: params.namespace,
+      metricName: params.metricName,
+      period: params.period,
+      statistics: params.statistics
+    })
+
+    try {
+      const credentials = await this.getCredentials(params.accountId, accounts)
+      
+      // Create CloudWatch client
+      const client = new CloudWatchClient({
+        region: credentials.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken
+        }
+      })
+
+      const command = new GetMetricStatisticsCommand({
+        Namespace: params.namespace,
+        MetricName: params.metricName,
+        Dimensions: params.dimensions,
+        StartTime: params.startTime,
+        EndTime: params.endTime,
+        Period: params.period,
+        Statistics: params.statistics as Statistic[]
+      })
+      
+      const response = await client.send(command)
+      
+      const datapoints = response.Datapoints?.map(dp => ({
+        timestamp: dp.Timestamp?.toISOString(),
+        average: dp.Average,
+        maximum: dp.Maximum,
+        minimum: dp.Minimum,
+        sum: dp.Sum,
+        sampleCount: dp.SampleCount,
+        unit: dp.Unit
+      })).sort((a, b) => new Date(a.timestamp!).getTime() - new Date(b.timestamp!).getTime()) || []
+
+      this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:GetMetricStatistics', true)
+
+      logger.info('CloudWatch metric statistics retrieved', {
+        accountId: params.accountId,
+        datapointsCount: datapoints.length,
+        metricName: params.metricName
+      })
+
+      return {
+        success: true,
+        datapoints,
+        label: response.Label,
+        metricName: params.metricName,
+        namespace: params.namespace,
+        period: params.period,
+        statistics: params.statistics,
+        timeRange: {
+          start: params.startTime.toISOString(),
+          end: params.endTime.toISOString()
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:GetMetricStatistics', false)
+      this.handleAWSError(error, 'CloudWatch get metric statistics', `${params.namespace}:${params.metricName}`)
+    }
+  }
+
+  /**
+   * List available CloudWatch metrics
+   */
+  async listMetrics(params: {
+    accountId: string
+    namespace?: string
+    metricName?: string
+    dimensions?: Array<{ Name: string; Value?: string }>
+    recentlyActive?: 'PT3H' // Only support 3 hours for now
+  }, accounts: Map<string, AWSAccount>): Promise<any> {
+    logger.info('Listing CloudWatch metrics', { 
+      accountId: params.accountId,
+      namespace: params.namespace,
+      metricName: params.metricName
+    })
+
+    try {
+      const credentials = await this.getCredentials(params.accountId, accounts)
+      
+      // Create CloudWatch client
+      const client = new CloudWatchClient({
+        region: credentials.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken
+        }
+      })
+
+      const listParams: any = {}
+
+      if (params.namespace) {
+        listParams.Namespace = params.namespace
+      }
+
+      if (params.metricName) {
+        listParams.MetricName = params.metricName
+      }
+
+      if (params.dimensions) {
+        listParams.Dimensions = params.dimensions
+      }
+
+      if (params.recentlyActive) {
+        listParams.RecentlyActive = params.recentlyActive
+      }
+
+      const command = new ListMetricsCommand(listParams)
+      const response = await client.send(command)
+      
+      const metrics = response.Metrics?.map(metric => ({
+        metricName: metric.MetricName,
+        namespace: metric.Namespace,
+        dimensions: metric.Dimensions?.map(dim => ({
+          name: dim.Name,
+          value: dim.Value
+        })) || []
+      })) || []
+
+      this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:ListMetrics', true)
+
+      logger.info('CloudWatch metrics listed', {
+        accountId: params.accountId,
+        count: metrics.length,
+        namespace: params.namespace
+      })
+
+      return {
+        success: true,
+        metrics,
+        count: metrics.length,
+        nextToken: response.NextToken,
+        filters: {
+          namespace: params.namespace,
+          metricName: params.metricName,
+          recentlyActive: params.recentlyActive
+        }
+      }
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'cloudwatch:ListMetrics', false)
+      this.handleAWSError(error, 'CloudWatch list metrics')
     }
   }
 }

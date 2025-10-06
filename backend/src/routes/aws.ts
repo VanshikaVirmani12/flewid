@@ -227,6 +227,18 @@ router.post('/cloudwatch/alarm/details', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// POST /api/aws/cloudwatch/metrics/list - List CloudWatch metrics
+router.post('/cloudwatch/metrics/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listCloudWatchMetrics(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/cloudwatch/metrics/statistics - Get CloudWatch metric statistics
+router.post('/cloudwatch/metrics/statistics', asyncHandler(async (req, res) => {
+  const result = await awsService.getCloudWatchMetricStatistics(req.body)
+  res.json(result)
+}))
+
 // POST /api/aws/apigateway/apis - List API Gateway APIs
 router.post('/apigateway/apis', asyncHandler(async (req, res) => {
   const result = await awsService.listAPIGatewayAPIs(req.body)

@@ -12,7 +12,7 @@ interface CloudWatchNodeData {
   label: string
   config: {
     // Common config
-    operation?: 'logs' | 'alarms'
+    operation?: 'logs' | 'alarms' | 'metrics'
     
     // Log query config
     logGroup?: string
@@ -24,6 +24,15 @@ interface CloudWatchNodeData {
     alarmFilter?: 'all' | 'alarm' | 'ok' | 'insufficient_data'
     selectedAlarm?: string
     includeHistory?: boolean
+    
+    // Metrics config
+    namespace?: string
+    metricName?: string
+    dimensions?: Array<{ name: string; value: string }>
+    period?: number
+    statistics?: string[]
+    metricStartTime?: string
+    metricEndTime?: string
   }
 }
 
@@ -300,10 +309,18 @@ Current length: ${trimmedKeyword.length} characters`
         newConfig.keyword = values.keyword
         newConfig.startTime = values.timeRange?.[0]?.toISOString()
         newConfig.endTime = values.timeRange?.[1]?.toISOString()
-      } else {
+      } else if (operation === 'alarms') {
         newConfig.alarmFilter = values.alarmFilter
         newConfig.selectedAlarm = values.selectedAlarm
         newConfig.includeHistory = values.includeHistory
+      } else {
+        // Metrics operation
+        newConfig.namespace = values.namespace
+        newConfig.metricName = values.metricName
+        newConfig.statistics = values.statistics
+        newConfig.period = values.period
+        newConfig.metricStartTime = values.metricTimeRange?.[0]?.toISOString()
+        newConfig.metricEndTime = values.metricTimeRange?.[1]?.toISOString()
       }
 
       // Call the parent component's config update handler
@@ -411,7 +428,7 @@ Current length: ${trimmedKeyword.length} characters`
 
           message.error(`Query failed: ${result.message || 'Unknown error'}`)
         }
-      } else {
+      } else if (operation === 'alarms') {
         // Execute alarm query
         if (!data.config.selectedAlarm) {
           message.warning('Please select an alarm first')
@@ -515,6 +532,99 @@ Current length: ${trimmedKeyword.length} characters`
 
           message.error(`Query failed: ${result.message || 'Unknown error'}`)
         }
+      } else {
+        // Execute metrics query
+        if (!data.config.namespace || !data.config.metricName || !data.config.statistics || !data.config.period || !data.config.metricStartTime || !data.config.metricEndTime) {
+          message.warning('Please configure all required metrics fields first')
+          return
+        }
+
+        const requestBody = {
+          accountId: 'dev-account-1',
+          namespace: data.config.namespace,
+          metricName: data.config.metricName,
+          statistics: data.config.statistics,
+          period: data.config.period,
+          startTime: new Date(data.config.metricStartTime),
+          endTime: new Date(data.config.metricEndTime)
+        }
+        
+        const response = await fetch('/api/aws/cloudwatch/metrics/statistics', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody)
+        })
+
+        const result = await response.json()
+        const duration = Date.now() - startTime
+
+        if (response.ok && result.success) {
+          const datapoints = result.datapoints || []
+          
+          let output = `CloudWatch Metrics Statistics:\n`
+          output += `${'='.repeat(50)}\n`
+          output += `Namespace: ${result.namespace}\n`
+          output += `Metric Name: ${result.metricName}\n`
+          output += `Statistics: ${result.statistics.join(', ')}\n`
+          output += `Period: ${result.period} seconds\n`
+          output += `Time Range: ${result.timeRange.start} to ${result.timeRange.end}\n`
+          output += `Data Points Found: ${datapoints.length}\n\n`
+          
+          if (datapoints.length > 0) {
+            output += `Data Points:\n`
+            output += `${'='.repeat(50)}\n`
+            datapoints.forEach((dp: any, index: number) => {
+              output += `[${dp.timestamp}]\n`
+              if (dp.average !== undefined) output += `  Average: ${dp.average}\n`
+              if (dp.sum !== undefined) output += `  Sum: ${dp.sum}\n`
+              if (dp.maximum !== undefined) output += `  Maximum: ${dp.maximum}\n`
+              if (dp.minimum !== undefined) output += `  Minimum: ${dp.minimum}\n`
+              if (dp.sampleCount !== undefined) output += `  Sample Count: ${dp.sampleCount}\n`
+              if (dp.unit) output += `  Unit: ${dp.unit}\n`
+              if (index < datapoints.length - 1) output += `${'-'.repeat(30)}\n`
+            })
+          } else {
+            output += `No data points found for the specified metric and time range.\n`
+          }
+
+          const executionResult = {
+            nodeId: id,
+            status: 'success' as const,
+            output,
+            duration,
+            timestamp: new Date().toISOString(),
+            extractedData: {
+              datapoints,
+              metricName: result.metricName,
+              namespace: result.namespace,
+              statistics: result.statistics,
+              period: result.period,
+              timeRange: result.timeRange
+            }
+          }
+
+          if (onNodeExecute) {
+            onNodeExecute(executionResult)
+          }
+
+          message.success(`Retrieved ${datapoints.length} data points`)
+        } else {
+          const executionResult = {
+            nodeId: id,
+            status: 'error' as const,
+            output: `CloudWatch metrics query failed: ${result.message || 'Unknown error'}`,
+            duration,
+            timestamp: new Date().toISOString(),
+          }
+
+          if (onNodeExecute) {
+            onNodeExecute(executionResult)
+          }
+
+          message.error(`Query failed: ${result.message || 'Unknown error'}`)
+        }
       }
     } catch (error: any) {
       const executionResult = {
@@ -568,7 +678,7 @@ Current length: ${trimmedKeyword.length} characters`
           )}
         </>
       )
-    } else {
+    } else if (operation === 'alarms') {
       return (
         <>
           <div className="text-xs mb-1">
@@ -593,6 +703,46 @@ Current length: ${trimmedKeyword.length} characters`
           </div>
         </>
       )
+    } else {
+      // Metrics operation
+      return (
+        <>
+          <div className="text-xs mb-1">
+            <strong>Operation:</strong> Metrics Statistics
+          </div>
+          {data.config.namespace ? (
+            <div className="text-xs mb-1">
+              <strong>Namespace:</strong> {data.config.namespace}
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 mb-1">No namespace configured</div>
+          )}
+          
+          {data.config.metricName ? (
+            <div className="text-xs mb-1">
+              <strong>Metric:</strong> {data.config.metricName}
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 mb-1">No metric configured</div>
+          )}
+          
+          {data.config.statistics && data.config.statistics.length > 0 ? (
+            <div className="text-xs mb-1">
+              <strong>Statistics:</strong> {data.config.statistics.join(', ')}
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 mb-1">No statistics configured</div>
+          )}
+          
+          {data.config.period ? (
+            <div className="text-xs mb-2">
+              <strong>Period:</strong> {data.config.period}s
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 mb-2">No period configured</div>
+          )}
+        </>
+      )
     }
   }
 
@@ -601,8 +751,12 @@ Current length: ${trimmedKeyword.length} characters`
     
     if (operation === 'logs') {
       return !data.config.logGroup || !data.config.keyword
-    } else {
+    } else if (operation === 'alarms') {
       return !data.config.selectedAlarm
+    } else {
+      // Metrics operation
+      return !data.config.namespace || !data.config.metricName || !data.config.statistics || 
+             !data.config.period || !data.config.metricStartTime || !data.config.metricEndTime
     }
   }
 
@@ -668,6 +822,7 @@ Current length: ${trimmedKeyword.length} characters`
             <Radio.Group onChange={(e) => handleOperationChange(e.target.value)}>
               <Radio value="logs">Log Query</Radio>
               <Radio value="alarms">Alarm Monitoring</Radio>
+              <Radio value="metrics">Metrics Statistics</Radio>
             </Radio.Group>
           </Form.Item>
 
@@ -709,7 +864,7 @@ Current length: ${trimmedKeyword.length} characters`
                     </Form.Item>
                   </>
                 )
-              } else {
+              } else if (operation === 'alarms') {
                 return (
                   <>
                     <Form.Item
@@ -766,6 +921,86 @@ Current length: ${trimmedKeyword.length} characters`
                       valuePropName="checked"
                     >
                       <Checkbox>Include alarm history in results</Checkbox>
+                    </Form.Item>
+                  </>
+                )
+              } else {
+                // Metrics operation
+                return (
+                  <>
+                    <Form.Item
+                      label="Namespace"
+                      name="namespace"
+                      rules={[{ required: true, message: 'Please enter a namespace' }]}
+                      help="AWS service namespace (e.g., AWS/Lambda, AWS/EC2, AWS/RDS)"
+                    >
+                      <Select placeholder="Select or enter namespace" showSearch allowClear>
+                        <Option value="AWS/Lambda">AWS/Lambda</Option>
+                        <Option value="AWS/EC2">AWS/EC2</Option>
+                        <Option value="AWS/RDS">AWS/RDS</Option>
+                        <Option value="AWS/DynamoDB">AWS/DynamoDB</Option>
+                        <Option value="AWS/S3">AWS/S3</Option>
+                        <Option value="AWS/CloudFront">AWS/CloudFront</Option>
+                        <Option value="AWS/ELB">AWS/ELB</Option>
+                        <Option value="AWS/ApplicationELB">AWS/ApplicationELB</Option>
+                        <Option value="AWS/NetworkELB">AWS/NetworkELB</Option>
+                        <Option value="AWS/ApiGateway">AWS/ApiGateway</Option>
+                        <Option value="AWS/SQS">AWS/SQS</Option>
+                        <Option value="AWS/SNS">AWS/SNS</Option>
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Metric Name"
+                      name="metricName"
+                      rules={[{ required: true, message: 'Please enter a metric name' }]}
+                      help="Name of the metric to retrieve (e.g., Duration, Invocations, CPUUtilization)"
+                    >
+                      <Input placeholder="Duration" />
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Statistics"
+                      name="statistics"
+                      rules={[{ required: true, message: 'Please select at least one statistic' }]}
+                      help="Statistical functions to apply to the metric data"
+                    >
+                      <Select mode="multiple" placeholder="Select statistics">
+                        <Option value="Average">Average</Option>
+                        <Option value="Sum">Sum</Option>
+                        <Option value="Maximum">Maximum</Option>
+                        <Option value="Minimum">Minimum</Option>
+                        <Option value="SampleCount">Sample Count</Option>
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Period (seconds)"
+                      name="period"
+                      rules={[{ required: true, message: 'Please select a period' }]}
+                      help="Time period for data aggregation"
+                    >
+                      <Select placeholder="Select period">
+                        <Option value={60}>1 minute</Option>
+                        <Option value={300}>5 minutes</Option>
+                        <Option value={900}>15 minutes</Option>
+                        <Option value={3600}>1 hour</Option>
+                        <Option value={21600}>6 hours</Option>
+                        <Option value={86400}>1 day</Option>
+                      </Select>
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Time Range"
+                      name="metricTimeRange"
+                      rules={[{ required: true, message: 'Please select a time range' }]}
+                      help="Time range for metric data retrieval"
+                    >
+                      <RangePicker
+                        showTime
+                        format="YYYY-MM-DD HH:mm:ss"
+                        className="w-full"
+                      />
                     </Form.Item>
                   </>
                 )

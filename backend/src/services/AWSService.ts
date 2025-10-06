@@ -98,6 +98,29 @@ export class AWSService {
     return this.cloudWatchService.getAlarmDetails(params, this.accounts)
   }
 
+  async listCloudWatchMetrics(params: {
+    accountId: string
+    namespace?: string
+    metricName?: string
+    dimensions?: Array<{ Name: string; Value?: string }>
+    recentlyActive?: 'PT3H'
+  }): Promise<any> {
+    return this.cloudWatchService.listMetrics(params, this.accounts)
+  }
+
+  async getCloudWatchMetricStatistics(params: {
+    accountId: string
+    namespace: string
+    metricName: string
+    dimensions?: Array<{ Name: string; Value: string }>
+    startTime: Date
+    endTime: Date
+    period: number
+    statistics: string[]
+  }): Promise<any> {
+    return this.cloudWatchService.getMetricStatistics(params, this.accounts)
+  }
+
   // DynamoDB methods
   async queryDynamoDB(params: {
     accountId: string
