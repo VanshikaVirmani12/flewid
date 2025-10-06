@@ -19,6 +19,15 @@ interface DynamoDBNodeData {
     indexName?: string
     filterExpression?: string
     limit?: number
+    // New fields for CRUD operations
+    key?: string
+    item?: string
+    updateExpression?: string
+    conditionExpression?: string
+    expressionAttributeNames?: string
+    expressionAttributeValues?: string
+    returnValues?: string
+    projectionExpression?: string
   }
 }
 
@@ -52,7 +61,15 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
       sortKeyValue: data.config.sortKeyValue || '',
       indexName: data.config.indexName || '',
       filterExpression: data.config.filterExpression || '',
-      limit: data.config.limit || 25
+      limit: data.config.limit || 25,
+      key: data.config.key || '',
+      item: data.config.item || '',
+      updateExpression: data.config.updateExpression || '',
+      conditionExpression: data.config.conditionExpression || '',
+      expressionAttributeNames: data.config.expressionAttributeNames || '',
+      expressionAttributeValues: data.config.expressionAttributeValues || '',
+      returnValues: data.config.returnValues || 'ALL_NEW',
+      projectionExpression: data.config.projectionExpression || ''
     })
   }, [data.config, form])
 
@@ -468,101 +485,123 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
             label="Operation"
             name="operation"
             rules={[{ required: true, message: 'Please select an operation' }]}
-            help="Choose between scan (all items) or query (by partition key)"
+            help="Choose the DynamoDB operation to perform"
           >
             <Select>
               <Option value="scan">Scan - Retrieve all items</Option>
               <Option value="query">Query - Search by partition key</Option>
+              <Option value="getItem">Get Item - Retrieve single item by key</Option>
+              <Option value="putItem">Put Item - Create or replace item</Option>
+              <Option value="updateItem">Update Item - Modify existing item</Option>
+              <Option value="deleteItem">Delete Item - Remove item</Option>
             </Select>
           </Form.Item>
 
+          {/* Conditional fields based on operation */}
           <Form.Item
-            label="Partition Key Name"
-            name="partitionKey"
-            help="Required for query operations. The name of the partition key attribute."
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.operation !== currentValues.operation}
           >
-            <Input placeholder="id" />
-          </Form.Item>
+            {({ getFieldValue }) => {
+              const operation = getFieldValue('operation')
+              
+              if (operation === 'scan' || operation === 'query') {
+                return (
+                  <>
+                    <Form.Item
+                      label="Partition Key Name"
+                      name="partitionKey"
+                      help="Required for query operations. The name of the partition key attribute."
+                    >
+                      <Input placeholder="id" />
+                    </Form.Item>
 
-          <Form.Item
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Partition Key Value
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<FunctionOutlined />}
-                  onClick={() => handleVariableHelperOpen('partitionKeyValue')}
-                  title="Insert variable"
-                />
-              </div>
-            }
-            name="partitionKeyValue"
-            help="Required for query operations. Use variables like {{cloudwatch.extractedData.userIds[0]}}"
-          >
-            <Input placeholder="user123 or {{cloudwatch.extractedData.userIds[0]}}" />
-          </Form.Item>
+                    <Form.Item
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          Partition Key Value
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FunctionOutlined />}
+                            onClick={() => handleVariableHelperOpen('partitionKeyValue')}
+                            title="Insert variable"
+                          />
+                        </div>
+                      }
+                      name="partitionKeyValue"
+                      help="Required for query operations. Use variables like {{cloudwatch.extractedData.userIds[0]}}"
+                    >
+                      <Input placeholder="user123 or {{cloudwatch.extractedData.userIds[0]}}" />
+                    </Form.Item>
 
-          <Form.Item
-            label="Sort Key Name (Optional)"
-            name="sortKey"
-            help="Optional. The name of the sort key attribute for more specific queries."
-          >
-            <Input placeholder="timestamp" />
-          </Form.Item>
+                    <Form.Item
+                      label="Sort Key Name (Optional)"
+                      name="sortKey"
+                      help="Optional. The name of the sort key attribute for more specific queries."
+                    >
+                      <Input placeholder="timestamp" />
+                    </Form.Item>
 
-          <Form.Item
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Sort Key Value (Optional)
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<FunctionOutlined />}
-                  onClick={() => handleVariableHelperOpen('sortKeyValue')}
-                  title="Insert variable"
-                />
-              </div>
-            }
-            name="sortKeyValue"
-            help="Optional. Use variables like {{cloudwatch.extractedData.timestamps[0]}}"
-          >
-            <Input placeholder="2024-01-01 or {{cloudwatch.extractedData.timestamps[0]}}" />
-          </Form.Item>
+                    <Form.Item
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          Sort Key Value (Optional)
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FunctionOutlined />}
+                            onClick={() => handleVariableHelperOpen('sortKeyValue')}
+                            title="Insert variable"
+                          />
+                        </div>
+                      }
+                      name="sortKeyValue"
+                      help="Optional. Use variables like {{cloudwatch.extractedData.timestamps[0]}}"
+                    >
+                      <Input placeholder="2024-01-01 or {{cloudwatch.extractedData.timestamps[0]}}" />
+                    </Form.Item>
 
-          <Form.Item
-            label="Index Name (Optional)"
-            name="indexName"
-            help="Optional. Global Secondary Index (GSI) or Local Secondary Index (LSI) name."
-          >
-            <Input placeholder="GSI1" />
-          </Form.Item>
+                    <Form.Item
+                      label="Index Name (Optional)"
+                      name="indexName"
+                      help="Optional. Global Secondary Index (GSI) or Local Secondary Index (LSI) name."
+                    >
+                      <Input placeholder="GSI1" />
+                    </Form.Item>
 
-          <Form.Item
-            label={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Filter Expression (Optional)
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<FunctionOutlined />}
-                  onClick={() => handleVariableHelperOpen('filterExpression')}
-                  title="Insert variable"
-                />
-              </div>
-            }
-            name="filterExpression"
-            help="Optional. Use variables in expressions like userId={{cloudwatch.extractedData.userIds[0]}}"
-          >
-            <Input placeholder="Status=ACTIVE or userId={{cloudwatch.extractedData.userIds[0]}}" />
-          </Form.Item>
+                    <Form.Item
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          Filter Expression (Optional)
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FunctionOutlined />}
+                            onClick={() => handleVariableHelperOpen('filterExpression')}
+                            title="Insert variable"
+                          />
+                        </div>
+                      }
+                      name="filterExpression"
+                      help="Optional. Use variables in expressions like userId={{cloudwatch.extractedData.userIds[0]}}"
+                    >
+                      <Input placeholder="Status=ACTIVE or userId={{cloudwatch.extractedData.userIds[0]}}" />
+                    </Form.Item>
 
-          <Form.Item
-            label="Limit"
-            name="limit"
-            help="Maximum number of items to return (1-1000)."
-          >
-            <Input type="number" min={1} max={1000} placeholder="25" />
+                    <Form.Item
+                      label="Limit"
+                      name="limit"
+                      help="Maximum number of items to return (1-1000)."
+                    >
+                      <Input type="number" min={1} max={1000} placeholder="25" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              
+              return null
+            }}
           </Form.Item>
 
           <Alert

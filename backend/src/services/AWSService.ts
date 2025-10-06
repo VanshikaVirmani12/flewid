@@ -114,6 +114,53 @@ export class AWSService {
     return this.dynamoDBService.queryTable(params, this.accounts)
   }
 
+  async updateDynamoDBItem(params: {
+    accountId: string
+    tableName: string
+    key: Record<string, any>
+    updateExpression: string
+    conditionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+    returnValues?: 'NONE' | 'ALL_OLD' | 'UPDATED_OLD' | 'ALL_NEW' | 'UPDATED_NEW'
+  }): Promise<any> {
+    return this.dynamoDBService.updateItem(params, this.accounts)
+  }
+
+  async deleteDynamoDBItem(params: {
+    accountId: string
+    tableName: string
+    key: Record<string, any>
+    conditionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+    returnValues?: 'NONE' | 'ALL_OLD'
+  }): Promise<any> {
+    return this.dynamoDBService.deleteItem(params, this.accounts)
+  }
+
+  async putDynamoDBItem(params: {
+    accountId: string
+    tableName: string
+    item: Record<string, any>
+    conditionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+    returnValues?: 'NONE' | 'ALL_OLD'
+  }): Promise<any> {
+    return this.dynamoDBService.putItem(params, this.accounts)
+  }
+
+  async getDynamoDBItem(params: {
+    accountId: string
+    tableName: string
+    key: Record<string, any>
+    projectionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+  }): Promise<any> {
+    return this.dynamoDBService.getItem(params, this.accounts)
+  }
+
   // S3 methods
   async listS3Objects(params: any): Promise<any> {
     return this.s3Service.listObjects(params)

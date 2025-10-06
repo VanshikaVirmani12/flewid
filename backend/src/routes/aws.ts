@@ -35,6 +35,30 @@ router.post('/dynamodb/query', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// POST /api/aws/dynamodb/item/get - Get DynamoDB item
+router.post('/dynamodb/item/get', asyncHandler(async (req, res) => {
+  const result = await awsService.getDynamoDBItem(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/dynamodb/item/put - Put DynamoDB item
+router.post('/dynamodb/item/put', asyncHandler(async (req, res) => {
+  const result = await awsService.putDynamoDBItem(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/dynamodb/item/update - Update DynamoDB item
+router.post('/dynamodb/item/update', asyncHandler(async (req, res) => {
+  const result = await awsService.updateDynamoDBItem(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/dynamodb/item/delete - Delete DynamoDB item
+router.post('/dynamodb/item/delete', asyncHandler(async (req, res) => {
+  const result = await awsService.deleteDynamoDBItem(req.body)
+  res.json(result)
+}))
+
 // POST /api/aws/s3/list - List S3 objects
 router.post('/s3/list', asyncHandler(async (req, res) => {
   const result = await awsService.listS3Objects(req.body)

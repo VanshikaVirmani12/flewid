@@ -1,4 +1,5 @@
-import { DynamoDBClient, QueryCommand, GetItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb'
+import { DynamoDBClient, QueryCommand, GetItemCommand, ScanCommand, UpdateItemCommand, DeleteItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb'
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb'
 import { BaseAWSService } from './BaseAWSService'
 import { AWSAccount } from '../AWSCredentialService'
 import { logger } from '../../utils/logger'
@@ -376,6 +377,411 @@ export class DynamoDBService extends BaseAWSService {
         throw createError('Table throughput exceeded. Please try again later.', 429)
       } else {
         this.handleAWSError(error, 'DynamoDB operation', params.tableName)
+      }
+    }
+  }
+
+  /**
+   * Update an item in DynamoDB table
+   */
+  async updateItem(params: {
+    accountId: string
+    tableName: string
+    key: Record<string, any>
+    updateExpression: string
+    conditionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+    returnValues?: 'NONE' | 'ALL_OLD' | 'UPDATED_OLD' | 'ALL_NEW' | 'UPDATED_NEW'
+  }, accounts: Map<string, AWSAccount>): Promise<any> {
+    logger.info('Updating DynamoDB item', { 
+      accountId: params.accountId,
+      tableName: params.tableName,
+      key: params.key
+    })
+
+    try {
+      const credentials = await this.getCredentials(params.accountId, accounts)
+      
+      const client = new DynamoDBClient({
+        region: credentials.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken
+        }
+      })
+
+      // Validate required parameters
+      if (!params.key || Object.keys(params.key).length === 0) {
+        throw createError('Key is required for update operations', 400)
+      }
+
+      if (!params.updateExpression || params.updateExpression.trim() === '') {
+        throw createError('Update expression is required', 400)
+      }
+
+      const updateParams: any = {
+        TableName: params.tableName,
+        Key: marshall(params.key),
+        UpdateExpression: params.updateExpression,
+        ReturnValues: params.returnValues || 'ALL_NEW',
+        ReturnConsumedCapacity: 'TOTAL'
+      }
+
+      // Add condition expression if provided
+      if (params.conditionExpression) {
+        updateParams.ConditionExpression = params.conditionExpression
+      }
+
+      // Add expression attribute names if provided
+      if (params.expressionAttributeNames && Object.keys(params.expressionAttributeNames).length > 0) {
+        updateParams.ExpressionAttributeNames = params.expressionAttributeNames
+      }
+
+      // Add expression attribute values if provided
+      if (params.expressionAttributeValues && Object.keys(params.expressionAttributeValues).length > 0) {
+        updateParams.ExpressionAttributeValues = marshall(params.expressionAttributeValues)
+      }
+
+      logger.info('DynamoDB UpdateItem parameters', {
+        tableName: params.tableName,
+        updateExpression: params.updateExpression,
+        conditionExpression: params.conditionExpression,
+        returnValues: params.returnValues
+      })
+
+      const command = new UpdateItemCommand(updateParams)
+      const response = await client.send(command)
+      
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:UpdateItem', true)
+
+      const result = {
+        success: true,
+        attributes: response.Attributes ? unmarshall(response.Attributes) : null,
+        consumedCapacity: response.ConsumedCapacity?.CapacityUnits || 0
+      }
+
+      logger.info('DynamoDB UpdateItem completed', {
+        accountId: params.accountId,
+        tableName: params.tableName,
+        consumedCapacity: result.consumedCapacity
+      })
+
+      return result
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:UpdateItem', false)
+      logger.error('Failed to update DynamoDB item', { 
+        accountId: params.accountId,
+        tableName: params.tableName,
+        error: error.message
+      })
+      
+      if (error.name === 'ConditionalCheckFailedException') {
+        throw createError('Condition check failed - item may have been modified by another process', 409)
+      } else if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Table '${params.tableName}' not found`, 404)
+      } else if (error.name === 'ValidationException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else {
+        this.handleAWSError(error, 'DynamoDB UpdateItem', params.tableName)
+      }
+    }
+  }
+
+  /**
+   * Delete an item from DynamoDB table
+   */
+  async deleteItem(params: {
+    accountId: string
+    tableName: string
+    key: Record<string, any>
+    conditionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+    returnValues?: 'NONE' | 'ALL_OLD'
+  }, accounts: Map<string, AWSAccount>): Promise<any> {
+    logger.info('Deleting DynamoDB item', { 
+      accountId: params.accountId,
+      tableName: params.tableName,
+      key: params.key
+    })
+
+    try {
+      const credentials = await this.getCredentials(params.accountId, accounts)
+      
+      const client = new DynamoDBClient({
+        region: credentials.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken
+        }
+      })
+
+      // Validate required parameters
+      if (!params.key || Object.keys(params.key).length === 0) {
+        throw createError('Key is required for delete operations', 400)
+      }
+
+      const deleteParams: any = {
+        TableName: params.tableName,
+        Key: marshall(params.key),
+        ReturnValues: params.returnValues || 'ALL_OLD',
+        ReturnConsumedCapacity: 'TOTAL'
+      }
+
+      // Add condition expression if provided
+      if (params.conditionExpression) {
+        deleteParams.ConditionExpression = params.conditionExpression
+      }
+
+      // Add expression attribute names if provided
+      if (params.expressionAttributeNames && Object.keys(params.expressionAttributeNames).length > 0) {
+        deleteParams.ExpressionAttributeNames = params.expressionAttributeNames
+      }
+
+      // Add expression attribute values if provided
+      if (params.expressionAttributeValues && Object.keys(params.expressionAttributeValues).length > 0) {
+        deleteParams.ExpressionAttributeValues = marshall(params.expressionAttributeValues)
+      }
+
+      logger.info('DynamoDB DeleteItem parameters', {
+        tableName: params.tableName,
+        conditionExpression: params.conditionExpression,
+        returnValues: params.returnValues
+      })
+
+      const command = new DeleteItemCommand(deleteParams)
+      const response = await client.send(command)
+      
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:DeleteItem', true)
+
+      const result = {
+        success: true,
+        attributes: response.Attributes ? unmarshall(response.Attributes) : null,
+        consumedCapacity: response.ConsumedCapacity?.CapacityUnits || 0
+      }
+
+      logger.info('DynamoDB DeleteItem completed', {
+        accountId: params.accountId,
+        tableName: params.tableName,
+        consumedCapacity: result.consumedCapacity
+      })
+
+      return result
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:DeleteItem', false)
+      logger.error('Failed to delete DynamoDB item', { 
+        accountId: params.accountId,
+        tableName: params.tableName,
+        error: error.message
+      })
+      
+      if (error.name === 'ConditionalCheckFailedException') {
+        throw createError('Condition check failed - item may have been modified by another process', 409)
+      } else if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Table '${params.tableName}' not found`, 404)
+      } else if (error.name === 'ValidationException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else {
+        this.handleAWSError(error, 'DynamoDB DeleteItem', params.tableName)
+      }
+    }
+  }
+
+  /**
+   * Put (create or replace) an item in DynamoDB table
+   */
+  async putItem(params: {
+    accountId: string
+    tableName: string
+    item: Record<string, any>
+    conditionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+    expressionAttributeValues?: Record<string, any>
+    returnValues?: 'NONE' | 'ALL_OLD'
+  }, accounts: Map<string, AWSAccount>): Promise<any> {
+    logger.info('Putting DynamoDB item', { 
+      accountId: params.accountId,
+      tableName: params.tableName,
+      itemKeys: Object.keys(params.item)
+    })
+
+    try {
+      const credentials = await this.getCredentials(params.accountId, accounts)
+      
+      const client = new DynamoDBClient({
+        region: credentials.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken
+        }
+      })
+
+      // Validate required parameters
+      if (!params.item || Object.keys(params.item).length === 0) {
+        throw createError('Item is required for put operations', 400)
+      }
+
+      const putParams: any = {
+        TableName: params.tableName,
+        Item: marshall(params.item),
+        ReturnValues: params.returnValues || 'NONE',
+        ReturnConsumedCapacity: 'TOTAL'
+      }
+
+      // Add condition expression if provided
+      if (params.conditionExpression) {
+        putParams.ConditionExpression = params.conditionExpression
+      }
+
+      // Add expression attribute names if provided
+      if (params.expressionAttributeNames && Object.keys(params.expressionAttributeNames).length > 0) {
+        putParams.ExpressionAttributeNames = params.expressionAttributeNames
+      }
+
+      // Add expression attribute values if provided
+      if (params.expressionAttributeValues && Object.keys(params.expressionAttributeValues).length > 0) {
+        putParams.ExpressionAttributeValues = marshall(params.expressionAttributeValues)
+      }
+
+      logger.info('DynamoDB PutItem parameters', {
+        tableName: params.tableName,
+        conditionExpression: params.conditionExpression,
+        returnValues: params.returnValues
+      })
+
+      const command = new PutItemCommand(putParams)
+      const response = await client.send(command)
+      
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:PutItem', true)
+
+      const result = {
+        success: true,
+        attributes: response.Attributes ? unmarshall(response.Attributes) : null,
+        consumedCapacity: response.ConsumedCapacity?.CapacityUnits || 0
+      }
+
+      logger.info('DynamoDB PutItem completed', {
+        accountId: params.accountId,
+        tableName: params.tableName,
+        consumedCapacity: result.consumedCapacity
+      })
+
+      return result
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:PutItem', false)
+      logger.error('Failed to put DynamoDB item', { 
+        accountId: params.accountId,
+        tableName: params.tableName,
+        error: error.message
+      })
+      
+      if (error.name === 'ConditionalCheckFailedException') {
+        throw createError('Condition check failed - item already exists or condition not met', 409)
+      } else if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Table '${params.tableName}' not found`, 404)
+      } else if (error.name === 'ValidationException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else {
+        this.handleAWSError(error, 'DynamoDB PutItem', params.tableName)
+      }
+    }
+  }
+
+  /**
+   * Get a single item from DynamoDB table
+   */
+  async getItem(params: {
+    accountId: string
+    tableName: string
+    key: Record<string, any>
+    projectionExpression?: string
+    expressionAttributeNames?: Record<string, string>
+  }, accounts: Map<string, AWSAccount>): Promise<any> {
+    logger.info('Getting DynamoDB item', { 
+      accountId: params.accountId,
+      tableName: params.tableName,
+      key: params.key
+    })
+
+    try {
+      const credentials = await this.getCredentials(params.accountId, accounts)
+      
+      const client = new DynamoDBClient({
+        region: credentials.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken
+        }
+      })
+
+      // Validate required parameters
+      if (!params.key || Object.keys(params.key).length === 0) {
+        throw createError('Key is required for get operations', 400)
+      }
+
+      const getParams: any = {
+        TableName: params.tableName,
+        Key: marshall(params.key),
+        ReturnConsumedCapacity: 'TOTAL'
+      }
+
+      // Add projection expression if provided
+      if (params.projectionExpression) {
+        getParams.ProjectionExpression = params.projectionExpression
+      }
+
+      // Add expression attribute names if provided
+      if (params.expressionAttributeNames && Object.keys(params.expressionAttributeNames).length > 0) {
+        getParams.ExpressionAttributeNames = params.expressionAttributeNames
+      }
+
+      logger.info('DynamoDB GetItem parameters', {
+        tableName: params.tableName,
+        projectionExpression: params.projectionExpression
+      })
+
+      const command = new GetItemCommand(getParams)
+      const response = await client.send(command)
+      
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:GetItem', true)
+
+      const result = {
+        success: true,
+        item: response.Item ? unmarshall(response.Item) : null,
+        consumedCapacity: response.ConsumedCapacity?.CapacityUnits || 0
+      }
+
+      logger.info('DynamoDB GetItem completed', {
+        accountId: params.accountId,
+        tableName: params.tableName,
+        itemFound: !!response.Item,
+        consumedCapacity: result.consumedCapacity
+      })
+
+      return result
+
+    } catch (error: any) {
+      this.credentialService.auditCredentialUsage(params.accountId, 'dynamodb:GetItem', false)
+      logger.error('Failed to get DynamoDB item', { 
+        accountId: params.accountId,
+        tableName: params.tableName,
+        error: error.message
+      })
+      
+      if (error.name === 'ResourceNotFoundException') {
+        throw createError(`Table '${params.tableName}' not found`, 404)
+      } else if (error.name === 'ValidationException') {
+        throw createError(`Invalid parameters: ${error.message}`, 400)
+      } else {
+        this.handleAWSError(error, 'DynamoDB GetItem', params.tableName)
       }
     }
   }
