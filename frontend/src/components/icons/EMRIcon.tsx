@@ -1,4 +1,5 @@
 import React from 'react'
+import AWSIconWrapper from './AWSIconWrapper'
 
 interface EMRIconProps {
   className?: string
@@ -6,12 +7,9 @@ interface EMRIconProps {
 }
 
 const EMRIcon: React.FC<EMRIconProps> = ({ className = '', size = 24 }) => {
-  return (
+  const fallbackSVG = (
     <svg
-      width={size}
-      height={size}
       viewBox="0 0 80 80"
-      className={className}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -54,6 +52,16 @@ const EMRIcon: React.FC<EMRIconProps> = ({ className = '', size = 24 }) => {
         </g>
       </g>
     </svg>
+  )
+
+  return (
+    <AWSIconWrapper
+      iconName="emr"
+      size={size}
+      className={className}
+      fallbackSVG={fallbackSVG}
+      alt="AWS EMR"
+    />
   )
 }
 
