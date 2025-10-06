@@ -1,8 +1,9 @@
 import React, { memo, useState, useCallback } from 'react'
 import { Handle, Position } from 'reactflow'
-import { SettingOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { SettingOutlined, ExclamationCircleOutlined, FunctionOutlined } from '@ant-design/icons'
 import { Modal, Form, Input, Button, message, Alert, Select } from 'antd'
 import DynamoDBIcon from '../icons/DynamoDBIcon'
+import VariableHelper from '../VariableHelper'
 
 const { Option } = Select
 
@@ -32,7 +33,9 @@ interface DynamoDBNodeProps {
 const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, onConfigUpdate, onNodeExecute }) => {
   const [isConfigModalVisible, setIsConfigModalVisible] = useState(false)
   const [isErrorModalVisible, setIsErrorModalVisible] = useState(false)
+  const [isVariableHelperVisible, setIsVariableHelperVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [activeField, setActiveField] = useState<string>('')
   const [form] = Form.useForm()
 
   const handleConfigClick = useCallback((e: React.MouseEvent) => {
@@ -204,6 +207,20 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
       showErrorModal('Failed to save configuration. Please check your inputs and try again.')
     }
   }, [form, onConfigUpdate, id, showErrorModal])
+
+  const handleVariableHelperOpen = useCallback((fieldName: string) => {
+    setActiveField(fieldName)
+    setIsVariableHelperVisible(true)
+  }, [])
+
+  const handleVariableInsert = useCallback((variable: string) => {
+    if (activeField) {
+      const currentValue = form.getFieldValue(activeField) || ''
+      const newValue = currentValue + variable
+      form.setFieldValue(activeField, newValue)
+    }
+    setIsVariableHelperVisible(false)
+  }, [form, activeField])
 
   const handleExecute = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -428,10 +445,21 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
           />
 
           <Form.Item
-            label="Table Name"
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Table Name
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FunctionOutlined />}
+                  onClick={() => handleVariableHelperOpen('tableName')}
+                  title="Insert variable"
+                />
+              </div>
+            }
             name="tableName"
             rules={[{ required: true, message: 'Please enter a table name' }]}
-            help="Enter the DynamoDB table name"
+            help="Enter the DynamoDB table name or use variables like {{cloudwatch.extractedData.tableName}}"
           >
             <Input placeholder="my-table" />
           </Form.Item>
@@ -457,11 +485,22 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
           </Form.Item>
 
           <Form.Item
-            label="Partition Key Value"
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Partition Key Value
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FunctionOutlined />}
+                  onClick={() => handleVariableHelperOpen('partitionKeyValue')}
+                  title="Insert variable"
+                />
+              </div>
+            }
             name="partitionKeyValue"
-            help="Required for query operations. The value to search for."
+            help="Required for query operations. Use variables like {{cloudwatch.extractedData.userIds[0]}}"
           >
-            <Input placeholder="user123" />
+            <Input placeholder="user123 or {{cloudwatch.extractedData.userIds[0]}}" />
           </Form.Item>
 
           <Form.Item
@@ -473,11 +512,22 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
           </Form.Item>
 
           <Form.Item
-            label="Sort Key Value (Optional)"
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Sort Key Value (Optional)
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FunctionOutlined />}
+                  onClick={() => handleVariableHelperOpen('sortKeyValue')}
+                  title="Insert variable"
+                />
+              </div>
+            }
             name="sortKeyValue"
-            help="Optional. The value of the sort key to search for."
+            help="Optional. Use variables like {{cloudwatch.extractedData.timestamps[0]}}"
           >
-            <Input placeholder="2024-01-01" />
+            <Input placeholder="2024-01-01 or {{cloudwatch.extractedData.timestamps[0]}}" />
           </Form.Item>
 
           <Form.Item
@@ -489,11 +539,22 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
           </Form.Item>
 
           <Form.Item
-            label="Filter Expression (Optional)"
+            label={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Filter Expression (Optional)
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FunctionOutlined />}
+                  onClick={() => handleVariableHelperOpen('filterExpression')}
+                  title="Insert variable"
+                />
+              </div>
+            }
             name="filterExpression"
-            help="Optional. Filter expression to refine results. Examples: Status=ACTIVE, contains(name,test), attribute_exists(email)"
+            help="Optional. Use variables in expressions like userId={{cloudwatch.extractedData.userIds[0]}}"
           >
-            <Input placeholder="Status=ACTIVE" />
+            <Input placeholder="Status=ACTIVE or userId={{cloudwatch.extractedData.userIds[0]}}" />
           </Form.Item>
 
           <Form.Item
@@ -546,6 +607,13 @@ const DynamoDBNode: React.FC<DynamoDBNodeProps> = memo(({ data, selected, id, on
           {errorMessage}
         </div>
       </Modal>
+
+      {/* Variable Helper Modal */}
+      <VariableHelper
+        visible={isVariableHelperVisible}
+        onClose={() => setIsVariableHelperVisible(false)}
+        onInsertVariable={handleVariableInsert}
+      />
     </>
   )
 })

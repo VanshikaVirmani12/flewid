@@ -221,5 +221,60 @@ router.post('/apigateway/analyze', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// SQS Routes
+
+// GET /api/aws/sqs/queues - List SQS queues
+router.get('/sqs/queues', asyncHandler(async (req, res) => {
+  const { accountId, queueNamePrefix, maxResults } = req.query
+  const result = await awsService.listSQSQueues({
+    accountId: accountId as string || 'dev-account-1',
+    queueNamePrefix: queueNamePrefix as string,
+    maxResults: maxResults ? parseInt(maxResults as string) : undefined
+  })
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/queues/list - List SQS queues (POST version for complex queries)
+router.post('/sqs/queues/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listSQSQueues(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/queue/url - Get SQS queue URL
+router.post('/sqs/queue/url', asyncHandler(async (req, res) => {
+  const result = await awsService.getSQSQueueUrl(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/queue/attributes - Get SQS queue attributes
+router.post('/sqs/queue/attributes', asyncHandler(async (req, res) => {
+  const result = await awsService.getSQSQueueAttributes(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/message/send - Send message to SQS queue
+router.post('/sqs/message/send', asyncHandler(async (req, res) => {
+  const result = await awsService.sendSQSMessage(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/messages/receive - Receive messages from SQS queue
+router.post('/sqs/messages/receive', asyncHandler(async (req, res) => {
+  const result = await awsService.receiveSQSMessages(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/message/delete - Delete message from SQS queue
+router.post('/sqs/message/delete', asyncHandler(async (req, res) => {
+  const result = await awsService.deleteSQSMessage(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sqs/messages/poll - Poll messages from SQS queue
+router.post('/sqs/messages/poll', asyncHandler(async (req, res) => {
+  const result = await awsService.pollSQSMessages(req.body)
+  res.json(result)
+}))
+
 
 export default router

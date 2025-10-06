@@ -9,6 +9,7 @@ import executionRoutes from './routes/executions'
 import awsRoutes from './routes/aws'
 import accountRoutes from './routes/accounts'
 import testRoutes from './routes/test'
+import variableRoutes from './routes/variables'
 import { errorHandler } from './middleware/errorHandler'
 import { logger } from './utils/logger'
 
@@ -49,6 +50,7 @@ app.use('/api/executions', executionRoutes)
 app.use('/api/aws', awsRoutes)
 app.use('/api/accounts', accountRoutes)
 app.use('/api/test', testRoutes)
+app.use('/api/variables', variableRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {

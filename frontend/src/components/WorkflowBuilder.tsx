@@ -30,6 +30,7 @@ import S3Node from './nodes/S3Node'
 import LambdaNode from './nodes/LambdaNode'
 import EMRNode from './nodes/EMRNode'
 import APIGatewayNode from './nodes/APIGatewayNode'
+import SQSNode from './nodes/SQSNode'
 import ConditionNode from './nodes/ConditionNode'
 import TransformNode from './nodes/TransformNode'
 
@@ -65,6 +66,10 @@ const createNodeTypes = (
     return <APIGatewayNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
   })
   
+  const SQSNodeWrapper = React.memo((props: any) => {
+    return <SQSNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
   return {
     cloudwatch: CloudWatchNodeWrapper,
     dynamodb: DynamoDBNodeWrapper,
@@ -72,6 +77,7 @@ const createNodeTypes = (
     lambda: LambdaNodeWrapper,
     emr: EMRNodeWrapper,
     apigateway: APIGatewayNodeWrapper,
+    sqs: SQSNodeWrapper,
     condition: ConditionNode,
     transform: TransformNode,
   }
@@ -732,6 +738,271 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
     }
   }
 
+  const executeSQSNode = async (node: Node) => {
+    const config = node.data.config
+    
+    if (!config.operation) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: 'SQS node not properly configured. Please set operation.',
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+
+    try {
+      const startTime = Date.now()
+      let endpoint = ''
+      let requestBody: any = {
+        accountId: 'dev-account-1'
+      }
+
+      // Determine endpoint and request body based on operation
+      switch (config.operation) {
+        case 'listQueues':
+          endpoint = '/api/aws/sqs/queues/list'
+          requestBody.queueNamePrefix = config.queueNamePrefix
+          requestBody.maxResults = config.maxResults
+          break
+
+        case 'sendMessage':
+          if (!config.queueName && !config.queueUrl) {
+            return {
+              nodeId: node.id,
+              status: 'error' as const,
+              output: 'SQS sendMessage requires queue name or URL.',
+              duration: 0,
+              timestamp: new Date().toISOString(),
+            }
+          }
+          if (!config.messageBody) {
+            return {
+              nodeId: node.id,
+              status: 'error' as const,
+              output: 'SQS sendMessage requires message body.',
+              duration: 0,
+              timestamp: new Date().toISOString(),
+            }
+          }
+          endpoint = '/api/aws/sqs/messages/send'
+          requestBody = {
+            ...requestBody,
+            queueName: config.queueName,
+            queueUrl: config.queueUrl,
+            messageBody: config.messageBody,
+            delaySeconds: config.delaySeconds,
+            messageAttributes: config.messageAttributes,
+            messageGroupId: config.messageGroupId,
+            messageDeduplicationId: config.messageDeduplicationId
+          }
+          break
+
+        case 'receiveMessages':
+          if (!config.queueName && !config.queueUrl) {
+            return {
+              nodeId: node.id,
+              status: 'error' as const,
+              output: 'SQS receiveMessages requires queue name or URL.',
+              duration: 0,
+              timestamp: new Date().toISOString(),
+            }
+          }
+          endpoint = '/api/aws/sqs/messages/receive'
+          requestBody = {
+            ...requestBody,
+            queueName: config.queueName,
+            queueUrl: config.queueUrl,
+            maxNumberOfMessages: config.maxNumberOfMessages,
+            visibilityTimeoutSeconds: config.visibilityTimeoutSeconds,
+            waitTimeSeconds: config.waitTimeSeconds,
+            attributeNames: config.attributeNames,
+            messageAttributeNames: config.messageAttributeNames
+          }
+          break
+
+        case 'pollMessages':
+          if (!config.queueName && !config.queueUrl) {
+            return {
+              nodeId: node.id,
+              status: 'error' as const,
+              output: 'SQS pollMessages requires queue name or URL.',
+              duration: 0,
+              timestamp: new Date().toISOString(),
+            }
+          }
+          endpoint = '/api/aws/sqs/messages/poll'
+          requestBody = {
+            ...requestBody,
+            queueName: config.queueName,
+            queueUrl: config.queueUrl,
+            maxNumberOfMessages: config.maxNumberOfMessages,
+            visibilityTimeoutSeconds: config.visibilityTimeoutSeconds,
+            waitTimeSeconds: config.waitTimeSeconds,
+            pollDurationSeconds: config.pollDurationSeconds,
+            attributeNames: config.attributeNames,
+            messageAttributeNames: config.messageAttributeNames
+          }
+          break
+
+        case 'getQueueAttributes':
+          if (!config.queueName && !config.queueUrl) {
+            return {
+              nodeId: node.id,
+              status: 'error' as const,
+              output: 'SQS getQueueAttributes requires queue name or URL.',
+              duration: 0,
+              timestamp: new Date().toISOString(),
+            }
+          }
+          endpoint = '/api/aws/sqs/queue/attributes'
+          requestBody = {
+            ...requestBody,
+            queueName: config.queueName,
+            queueUrl: config.queueUrl,
+            attributeNames: config.attributeNames
+          }
+          break
+
+        default:
+          return {
+            nodeId: node.id,
+            status: 'error' as const,
+            output: `Unsupported SQS operation: ${config.operation}`,
+            duration: 0,
+            timestamp: new Date().toISOString(),
+          }
+      }
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+      const duration = Date.now() - startTime
+
+      if (response.ok && result.success) {
+        let output = `SQS ${config.operation} Results:\n`
+        
+        if (config.operation === 'listQueues') {
+          const queues = result.queues || []
+          output += `Total Queues Found: ${queues.length}\n`
+          output += `Region: ${result.region}\n\n`
+          
+          if (queues.length > 0) {
+            output += `Queue Details:\n`
+            output += `${'='.repeat(50)}\n`
+            queues.forEach((queue: any) => {
+              output += `Name: ${queue.queueName}\n`
+              output += `URL: ${queue.queueUrl}\n`
+              output += `Region: ${queue.region}\n`
+              output += `${'-'.repeat(30)}\n`
+            })
+          } else {
+            output += `No queues found`
+            if (config.queueNamePrefix) {
+              output += ` with prefix "${config.queueNamePrefix}"`
+            }
+            output += `\n`
+          }
+        } else if (config.operation === 'sendMessage') {
+          output += `Message sent successfully!\n`
+          output += `Queue: ${config.queueName || config.queueUrl}\n`
+          output += `Message ID: ${result.messageId}\n`
+          output += `MD5 of Body: ${result.md5OfBody}\n`
+          if (result.sequenceNumber) {
+            output += `Sequence Number: ${result.sequenceNumber}\n`
+          }
+        } else if (config.operation === 'receiveMessages') {
+          const messages = result.messages || []
+          output += `Messages received: ${messages.length}\n`
+          output += `Queue: ${config.queueName || config.queueUrl}\n\n`
+          
+          if (messages.length > 0) {
+            output += `Message Details:\n`
+            output += `${'='.repeat(50)}\n`
+            messages.forEach((message: any, index: number) => {
+              output += `Message ${index + 1}:\n`
+              output += `ID: ${message.messageId}\n`
+              output += `Body: ${message.body}\n`
+              output += `MD5: ${message.md5OfBody}\n`
+              if (Object.keys(message.attributes).length > 0) {
+                output += `Attributes: ${JSON.stringify(message.attributes, null, 2)}\n`
+              }
+              output += `${'-'.repeat(30)}\n`
+            })
+          } else {
+            output += `No messages available in the queue\n`
+          }
+        } else if (config.operation === 'pollMessages') {
+          const messages = result.messages || []
+          output += `Polling completed!\n`
+          output += `Queue: ${config.queueName || config.queueUrl}\n`
+          output += `Poll Duration: ${result.pollDurationSeconds}s\n`
+          output += `Poll Iterations: ${result.pollIterations}\n`
+          output += `Total Messages Found: ${messages.length}\n\n`
+          
+          if (messages.length > 0) {
+            output += `Messages Found:\n`
+            output += `${'='.repeat(50)}\n`
+            messages.forEach((message: any, index: number) => {
+              output += `Message ${index + 1} (Poll ${message.pollIteration}):\n`
+              output += `ID: ${message.messageId}\n`
+              output += `Received At: ${message.receivedAt}\n`
+              output += `Body: ${message.body}\n`
+              output += `MD5: ${message.md5OfBody}\n`
+              output += `${'-'.repeat(30)}\n`
+            })
+          } else {
+            output += `No messages received during polling period\n`
+          }
+        } else if (config.operation === 'getQueueAttributes') {
+          const attributes = result.attributes || {}
+          output += `Queue Attributes:\n`
+          output += `Queue: ${config.queueName || config.queueUrl}\n\n`
+          
+          if (Object.keys(attributes).length > 0) {
+            output += `Attributes:\n`
+            output += `${'='.repeat(50)}\n`
+            Object.entries(attributes).forEach(([key, value]) => {
+              output += `${key}: ${value}\n`
+            })
+          } else {
+            output += `No attributes found\n`
+          }
+        }
+
+        return {
+          nodeId: node.id,
+          status: 'success' as const,
+          output,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        return {
+          nodeId: node.id,
+          status: 'error' as const,
+          output: `SQS ${config.operation} failed: ${result.message || 'Unknown error'}`,
+          duration,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    } catch (error: any) {
+      return {
+        nodeId: node.id,
+        status: 'error' as const,
+        output: `SQS operation error: ${error.message}`,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      }
+    }
+  }
+
 
   const handleExecuteWorkflow = async () => {
     if (nodes.length <= 1) {
@@ -774,6 +1045,9 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
             break
           case 'apigateway':
             result = await executeAPIGatewayNode(node)
+            break
+          case 'sqs':
+            result = await executeSQSNode(node)
             break
           default:
             // Mock execution for other node types

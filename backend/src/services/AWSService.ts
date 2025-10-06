@@ -9,6 +9,7 @@ import { S3Service } from './aws/S3Service'
 import { LambdaService } from './aws/LambdaService'
 import { EMRService } from './aws/EMRService'
 import { APIGatewayService } from './aws/APIGatewayService'
+import { SQSService } from './aws/SQSService'
 
 export class AWSService {
   private credentialService: AWSCredentialService
@@ -21,6 +22,7 @@ export class AWSService {
   private lambdaService: LambdaService
   private emrService: EMRService
   private apiGatewayService: APIGatewayService
+  private sqsService: SQSService
 
   constructor() {
     this.credentialService = new AWSCredentialService()
@@ -33,6 +35,7 @@ export class AWSService {
     this.lambdaService = new LambdaService(this.credentialService)
     this.emrService = new EMRService(this.credentialService)
     this.apiGatewayService = new APIGatewayService(this.credentialService)
+    this.sqsService = new SQSService(this.credentialService)
   }
 
   /**
@@ -264,6 +267,80 @@ export class AWSService {
     endTime?: number
   }): Promise<any> {
     return this.apiGatewayService.analyze(params, this.accounts)
+  }
+
+  // SQS methods
+  async listSQSQueues(params: {
+    accountId: string
+    queueNamePrefix?: string
+    maxResults?: number
+  }): Promise<any> {
+    return this.sqsService.listQueues(params, this.accounts)
+  }
+
+  async getSQSQueueUrl(params: {
+    accountId: string
+    queueName: string
+    queueOwnerAWSAccountId?: string
+  }): Promise<any> {
+    return this.sqsService.getQueueUrl(params, this.accounts)
+  }
+
+  async getSQSQueueAttributes(params: {
+    accountId: string
+    queueUrl?: string
+    queueName?: string
+    attributeNames?: string[]
+  }): Promise<any> {
+    return this.sqsService.getQueueAttributes(params, this.accounts)
+  }
+
+  async sendSQSMessage(params: {
+    accountId: string
+    queueUrl?: string
+    queueName?: string
+    messageBody: string
+    delaySeconds?: number
+    messageAttributes?: Record<string, any>
+    messageGroupId?: string
+    messageDeduplicationId?: string
+  }): Promise<any> {
+    return this.sqsService.sendMessage(params, this.accounts)
+  }
+
+  async receiveSQSMessages(params: {
+    accountId: string
+    queueUrl?: string
+    queueName?: string
+    maxNumberOfMessages?: number
+    visibilityTimeoutSeconds?: number
+    waitTimeSeconds?: number
+    attributeNames?: string[]
+    messageAttributeNames?: string[]
+  }): Promise<any> {
+    return this.sqsService.receiveMessages(params, this.accounts)
+  }
+
+  async deleteSQSMessage(params: {
+    accountId: string
+    queueUrl: string
+    receiptHandle: string
+  }): Promise<any> {
+    return this.sqsService.deleteMessage(params, this.accounts)
+  }
+
+  async pollSQSMessages(params: {
+    accountId: string
+    queueUrl?: string
+    queueName?: string
+    maxNumberOfMessages?: number
+    visibilityTimeoutSeconds?: number
+    waitTimeSeconds?: number
+    pollDurationSeconds?: number
+    attributeNames?: string[]
+    messageAttributeNames?: string[]
+  }): Promise<any> {
+    return this.sqsService.pollMessages(params, this.accounts)
   }
 
   // Utility methods

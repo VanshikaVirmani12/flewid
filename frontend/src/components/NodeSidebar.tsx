@@ -10,6 +10,7 @@ import S3Icon from './icons/S3Icon'
 import LambdaIcon from './icons/LambdaIcon'
 import EMRIcon from './icons/EMRIcon'
 import APIGatewayIcon from './icons/APIGatewayIcon'
+import SQSIcon from './icons/SQSIcon'
 
 const { Title, Text } = Typography
 
@@ -86,6 +87,13 @@ const NodeSidebar: React.FC = () => {
       icon: <APIGatewayIcon size={20} />,
       title: 'API Gateway',
       description: 'Analyze API access logs and performance',
+      color: 'inherit'
+    },
+    {
+      type: 'sqs',
+      icon: <SQSIcon size={20} />,
+      title: 'SQS',
+      description: 'Send and receive messages',
       color: 'inherit'
     }
   ]
