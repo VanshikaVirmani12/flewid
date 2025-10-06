@@ -10,6 +10,7 @@ import { LambdaService } from './aws/LambdaService'
 import { EMRService } from './aws/EMRService'
 import { APIGatewayService } from './aws/APIGatewayService'
 import { SQSService } from './aws/SQSService'
+import { AthenaService } from './aws/AthenaService'
 
 export class AWSService {
   private credentialService: AWSCredentialService
@@ -23,6 +24,7 @@ export class AWSService {
   private emrService: EMRService
   private apiGatewayService: APIGatewayService
   private sqsService: SQSService
+  private athenaService: AthenaService
 
   constructor() {
     this.credentialService = new AWSCredentialService()
@@ -36,6 +38,7 @@ export class AWSService {
     this.emrService = new EMRService(this.credentialService)
     this.apiGatewayService = new APIGatewayService(this.credentialService)
     this.sqsService = new SQSService(this.credentialService)
+    this.athenaService = new AthenaService(this.credentialService)
   }
 
   /**
@@ -341,6 +344,72 @@ export class AWSService {
     messageAttributeNames?: string[]
   }): Promise<any> {
     return this.sqsService.pollMessages(params, this.accounts)
+  }
+
+  // Athena methods
+  async executeAthenaQuery(params: {
+    accountId: string
+    queryString: string
+    database: string
+    outputLocation: string
+    workGroup?: string
+    queryExecutionContext?: Record<string, any>
+    resultConfiguration?: Record<string, any>
+    clientRequestToken?: string
+  }): Promise<any> {
+    return this.athenaService.executeQuery(params, this.accounts)
+  }
+
+  async getAthenaQueryExecution(params: {
+    accountId: string
+    queryExecutionId: string
+  }): Promise<any> {
+    return this.athenaService.getQueryExecution(params, this.accounts)
+  }
+
+  async listAthenaQueryExecutions(params: {
+    accountId: string
+    workGroup?: string
+    maxResults?: number
+    nextToken?: string
+  }): Promise<any> {
+    return this.athenaService.listQueryExecutions(params, this.accounts)
+  }
+
+  async stopAthenaQueryExecution(params: {
+    accountId: string
+    queryExecutionId: string
+  }): Promise<any> {
+    return this.athenaService.stopQueryExecution(params, this.accounts)
+  }
+
+  async listAthenaDatabases(params: {
+    accountId: string
+    catalogName?: string
+    maxResults?: number
+    nextToken?: string
+  }): Promise<any> {
+    return this.athenaService.listDatabases(params, this.accounts)
+  }
+
+  async listAthenaTables(params: {
+    accountId: string
+    catalogName?: string
+    databaseName: string
+    expression?: string
+    maxResults?: number
+    nextToken?: string
+  }): Promise<any> {
+    return this.athenaService.listTables(params, this.accounts)
+  }
+
+  async getAthenaQueryResults(params: {
+    accountId: string
+    queryExecutionId: string
+    maxResults?: number
+    nextToken?: string
+  }): Promise<any> {
+    return this.athenaService.getQueryResults(params, this.accounts)
   }
 
   // Utility methods

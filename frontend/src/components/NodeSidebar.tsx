@@ -11,6 +11,7 @@ import LambdaIcon from './icons/LambdaIcon'
 import EMRIcon from './icons/EMRIcon'
 import APIGatewayIcon from './icons/APIGatewayIcon'
 import SQSIcon from './icons/SQSIcon'
+import AthenaIcon from './icons/AthenaIcon'
 
 const { Title, Text } = Typography
 
@@ -94,6 +95,13 @@ const NodeSidebar: React.FC = () => {
       icon: <SQSIcon size={20} />,
       title: 'SQS',
       description: 'Send and receive messages',
+      color: 'inherit'
+    },
+    {
+      type: 'athena',
+      icon: <AthenaIcon size={20} />,
+      title: 'Athena',
+      description: 'Query data with SQL',
       color: 'inherit'
     }
   ]

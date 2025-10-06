@@ -276,5 +276,49 @@ router.post('/sqs/messages/poll', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// Athena Routes
+
+// POST /api/aws/athena/query/execute - Execute Athena query
+router.post('/athena/query/execute', asyncHandler(async (req, res) => {
+  const result = await awsService.executeAthenaQuery(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/athena/query/execution - Get query execution details
+router.post('/athena/query/execution', asyncHandler(async (req, res) => {
+  const result = await awsService.getAthenaQueryExecution(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/athena/query/executions/list - List query executions
+router.post('/athena/query/executions/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listAthenaQueryExecutions(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/athena/query/stop - Stop query execution
+router.post('/athena/query/stop', asyncHandler(async (req, res) => {
+  const result = await awsService.stopAthenaQueryExecution(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/athena/databases/list - List databases
+router.post('/athena/databases/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listAthenaDatabases(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/athena/tables/list - List tables
+router.post('/athena/tables/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listAthenaTables(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/athena/query/results - Get query results
+router.post('/athena/query/results', asyncHandler(async (req, res) => {
+  const result = await awsService.getAthenaQueryResults(req.body)
+  res.json(result)
+}))
+
 
 export default router
