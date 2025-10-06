@@ -32,6 +32,7 @@ import EMRNode from './nodes/EMRNode'
 import APIGatewayNode from './nodes/APIGatewayNode'
 import SQSNode from './nodes/SQSNode'
 import AthenaNode from './nodes/AthenaNode'
+import SNSNode from './nodes/SNSNode'
 import ConditionNode from './nodes/ConditionNode'
 import TransformNode from './nodes/TransformNode'
 
@@ -75,6 +76,10 @@ const createNodeTypes = (
     return <AthenaNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
   })
   
+  const SNSNodeWrapper = React.memo((props: any) => {
+    return <SNSNode {...props} onConfigUpdate={onConfigUpdate} onNodeExecute={onNodeExecute} />
+  })
+  
   return {
     cloudwatch: CloudWatchNodeWrapper,
     dynamodb: DynamoDBNodeWrapper,
@@ -84,6 +89,7 @@ const createNodeTypes = (
     apigateway: APIGatewayNodeWrapper,
     sqs: SQSNodeWrapper,
     athena: AthenaNodeWrapper,
+    sns: SNSNodeWrapper,
     condition: ConditionNode,
     transform: TransformNode,
   }

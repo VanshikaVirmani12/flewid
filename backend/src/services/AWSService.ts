@@ -11,6 +11,7 @@ import { EMRService } from './aws/EMRService'
 import { APIGatewayService } from './aws/APIGatewayService'
 import { SQSService } from './aws/SQSService'
 import { AthenaService } from './aws/AthenaService'
+import { SNSService } from './aws/SNSService'
 
 export class AWSService {
   private credentialService: AWSCredentialService
@@ -25,6 +26,7 @@ export class AWSService {
   private apiGatewayService: APIGatewayService
   private sqsService: SQSService
   private athenaService: AthenaService
+  private snsService: SNSService
 
   constructor() {
     this.credentialService = new AWSCredentialService()
@@ -39,6 +41,7 @@ export class AWSService {
     this.apiGatewayService = new APIGatewayService(this.credentialService)
     this.sqsService = new SQSService(this.credentialService)
     this.athenaService = new AthenaService(this.credentialService)
+    this.snsService = new SNSService(this.credentialService)
   }
 
   /**
@@ -410,6 +413,85 @@ export class AWSService {
     nextToken?: string
   }): Promise<any> {
     return this.athenaService.getQueryResults(params, this.accounts)
+  }
+
+  // SNS methods
+  async publishSNSMessage(params: {
+    accountId: string
+    topicArn?: string
+    phoneNumber?: string
+    targetArn?: string
+    message: string
+    subject?: string
+    messageAttributes?: Record<string, any>
+    messageStructure?: string
+    messageDeduplicationId?: string
+    messageGroupId?: string
+  }): Promise<any> {
+    return this.snsService.publishMessage(params, this.accounts)
+  }
+
+  async publishSNSBatch(params: {
+    accountId: string
+    topicArn: string
+    messages: Array<{
+      id: string
+      message: string
+      subject?: string
+      messageAttributes?: Record<string, any>
+      messageDeduplicationId?: string
+      messageGroupId?: string
+    }>
+  }): Promise<any> {
+    return this.snsService.publishBatch(params, this.accounts)
+  }
+
+  async listSNSTopics(params: {
+    accountId: string
+    nextToken?: string
+  }): Promise<any> {
+    return this.snsService.listTopics(params, this.accounts)
+  }
+
+  async createSNSTopic(params: {
+    accountId: string
+    name: string
+    attributes?: Record<string, string>
+    tags?: Record<string, string>
+  }): Promise<any> {
+    return this.snsService.createTopic(params, this.accounts)
+  }
+
+  async deleteSNSTopic(params: {
+    accountId: string
+    topicArn: string
+  }): Promise<any> {
+    return this.snsService.deleteTopic(params, this.accounts)
+  }
+
+  async subscribeToSNSTopic(params: {
+    accountId: string
+    topicArn: string
+    protocol: 'email' | 'email-json' | 'sms' | 'sqs' | 'application' | 'lambda' | 'firehose' | 'http' | 'https'
+    endpoint: string
+    attributes?: Record<string, string>
+  }): Promise<any> {
+    return this.snsService.subscribe(params, this.accounts)
+  }
+
+  async listSNSSubscriptionsByTopic(params: {
+    accountId: string
+    topicArn: string
+    nextToken?: string
+  }): Promise<any> {
+    return this.snsService.listSubscriptionsByTopic(params, this.accounts)
+  }
+
+  async getSNSTopicAttributes(params: {
+    accountId: string
+    topicArn: string
+  }): Promise<any> {
+    return this.snsService.getTopicAttributes(params, this.accounts)
   }
 
   // Utility methods

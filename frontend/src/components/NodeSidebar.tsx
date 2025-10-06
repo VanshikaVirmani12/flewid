@@ -12,6 +12,7 @@ import EMRIcon from './icons/EMRIcon'
 import APIGatewayIcon from './icons/APIGatewayIcon'
 import SQSIcon from './icons/SQSIcon'
 import AthenaIcon from './icons/AthenaIcon'
+import SNSIcon from './icons/SNSIcon'
 
 const { Title, Text } = Typography
 
@@ -102,6 +103,13 @@ const NodeSidebar: React.FC = () => {
       icon: <AthenaIcon size={20} />,
       title: 'Athena',
       description: 'Query data with SQL',
+      color: 'inherit'
+    },
+    {
+      type: 'sns',
+      icon: <SNSIcon size={20} />,
+      title: 'SNS',
+      description: 'Send notifications',
       color: 'inherit'
     }
   ]

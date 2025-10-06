@@ -320,5 +320,55 @@ router.post('/athena/query/results', asyncHandler(async (req, res) => {
   res.json(result)
 }))
 
+// SNS Routes
+
+// POST /api/aws/sns/message/publish - Publish message to SNS topic or phone number
+router.post('/sns/message/publish', asyncHandler(async (req, res) => {
+  const result = await awsService.publishSNSMessage(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/message/publish-batch - Publish batch messages to SNS topic
+router.post('/sns/message/publish-batch', asyncHandler(async (req, res) => {
+  const result = await awsService.publishSNSBatch(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/topics/list - List SNS topics
+router.post('/sns/topics/list', asyncHandler(async (req, res) => {
+  const result = await awsService.listSNSTopics(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/topic/create - Create SNS topic
+router.post('/sns/topic/create', asyncHandler(async (req, res) => {
+  const result = await awsService.createSNSTopic(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/topic/delete - Delete SNS topic
+router.post('/sns/topic/delete', asyncHandler(async (req, res) => {
+  const result = await awsService.deleteSNSTopic(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/topic/subscribe - Subscribe to SNS topic
+router.post('/sns/topic/subscribe', asyncHandler(async (req, res) => {
+  const result = await awsService.subscribeToSNSTopic(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/topic/subscriptions - List subscriptions for SNS topic
+router.post('/sns/topic/subscriptions', asyncHandler(async (req, res) => {
+  const result = await awsService.listSNSSubscriptionsByTopic(req.body)
+  res.json(result)
+}))
+
+// POST /api/aws/sns/topic/attributes - Get SNS topic attributes
+router.post('/sns/topic/attributes', asyncHandler(async (req, res) => {
+  const result = await awsService.getSNSTopicAttributes(req.body)
+  res.json(result)
+}))
+
 
 export default router
