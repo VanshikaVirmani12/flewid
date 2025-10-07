@@ -432,6 +432,7 @@ export class SQSService extends BaseAWSService {
       accountId: params.accountId,
       queueUrl: params.queueUrl,
       queueName: params.queueName,
+      maxNumberOfMessages: params.maxNumberOfMessages,
       pollDurationSeconds: params.pollDurationSeconds
     })
 
@@ -464,14 +465,19 @@ export class SQSService extends BaseAWSService {
       const allMessages: any[] = []
       const startTime = Date.now()
       const pollDuration = (params.pollDurationSeconds || 30) * 1000 // Convert to milliseconds
+      const maxTotalMessages = params.maxNumberOfMessages || 10 // Total limit across all polls
       let pollCount = 0
 
-      while (Date.now() - startTime < pollDuration) {
+      while (Date.now() - startTime < pollDuration && allMessages.length < maxTotalMessages) {
         pollCount++
+        
+        // Calculate how many more messages we can receive
+        const remainingMessages = maxTotalMessages - allMessages.length
+        const messagesPerPoll = Math.min(remainingMessages, 10) // SQS max per request is 10
         
         const command = new ReceiveMessageCommand({
           QueueUrl: queueUrl,
-          MaxNumberOfMessages: params.maxNumberOfMessages || 10,
+          MaxNumberOfMessages: messagesPerPoll,
           VisibilityTimeout: params.visibilityTimeoutSeconds,
           WaitTimeSeconds: params.waitTimeSeconds || 5, // Use long polling by default
           AttributeNames: params.attributeNames as QueueAttributeName[],
@@ -494,7 +500,20 @@ export class SQSService extends BaseAWSService {
             pollIteration: pollCount
           }))
 
-          allMessages.push(...formattedMessages)
+          // Only add messages up to the limit
+          const messagesToAdd = formattedMessages.slice(0, remainingMessages)
+          allMessages.push(...messagesToAdd)
+          
+          // If we've reached the limit, break out of the loop
+          if (allMessages.length >= maxTotalMessages) {
+            break
+          }
+        }
+
+        // If no messages were received and we're using long polling, 
+        // we can break early as the queue is likely empty
+        if (messages.length === 0 && (params.waitTimeSeconds || 0) > 0) {
+          break
         }
 
         // Small delay between polls if no wait time is set
@@ -509,8 +528,10 @@ export class SQSService extends BaseAWSService {
         success: true,
         messages: allMessages,
         totalMessages: allMessages.length,
+        maxRequestedMessages: maxTotalMessages,
         pollIterations: pollCount,
         pollDurationSeconds: Math.round((Date.now() - startTime) / 1000),
+        limitReached: allMessages.length >= maxTotalMessages,
         queueUrl: queueUrl
       }
 

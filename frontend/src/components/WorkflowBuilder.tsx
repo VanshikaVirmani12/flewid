@@ -131,7 +131,20 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = () => {
 
   // Handle individual node execution results
   const handleNodeExecute = useCallback((result: any) => {
-    setExecutionResults(prev => [...prev, result])
+    setExecutionResults(prev => {
+      // Check if there's already a running result for this nodeId
+      const existingRunningIndex = prev.findIndex(r => r.nodeId === result.nodeId && r.status === 'running')
+      
+      if (existingRunningIndex !== -1 && result.status !== 'running') {
+        // Replace the running result with the final result
+        const newResults = [...prev]
+        newResults[existingRunningIndex] = result
+        return newResults
+      } else {
+        // Add new result (including new running results)
+        return [...prev, result]
+      }
+    })
   }, [])
 
   // Create node types with config update handler - memoized to prevent recreation

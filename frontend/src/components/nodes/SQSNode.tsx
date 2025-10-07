@@ -181,7 +181,48 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
 
     const startTime = Date.now()
 
-    // Show immediate progress indication in execution panel
+    // Pre-validate configuration before showing running status
+    let validationError = ''
+    
+    switch (data.config.operation) {
+      case 'sendMessage':
+        if (!data.config.queueUrl && !data.config.queueName) {
+          validationError = 'Queue URL or Queue Name is required for send message'
+        }
+        break
+      case 'receiveMessages':
+        if (!data.config.queueUrl && !data.config.queueName) {
+          validationError = 'Queue URL or Queue Name is required for receive messages'
+        }
+        break
+      case 'pollMessages':
+        if (!data.config.queueUrl && !data.config.queueName) {
+          validationError = 'Queue URL or Queue Name is required for poll messages'
+        }
+        break
+      case 'getQueueAttributes':
+        if (!data.config.queueUrl && !data.config.queueName) {
+          validationError = 'Queue URL or Queue Name is required for get queue attributes'
+        }
+        break
+    }
+
+    // If validation fails, show error immediately without running status
+    if (validationError) {
+      message.error(validationError)
+      if (onNodeExecute) {
+        onNodeExecute({
+          nodeId: id,
+          status: 'error' as const,
+          output: validationError,
+          duration: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+        })
+      }
+      return
+    }
+
+    // Show immediate progress indication in execution panel only after validation passes
     const progressResult = {
       nodeId: id,
       status: 'running' as const,
@@ -213,10 +254,6 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
           
         case 'sendMessage':
           endpoint = '/api/aws/sqs/message/send'
-          if (!data.config.queueUrl && !data.config.queueName) {
-            message.error('Queue URL or Queue Name is required for send message')
-            return
-          }
           requestBody.queueUrl = data.config.queueUrl
           requestBody.queueName = data.config.queueName
           requestBody.messageBody = data.config.messageBody
@@ -227,10 +264,6 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
           
         case 'receiveMessages':
           endpoint = '/api/aws/sqs/messages/receive'
-          if (!data.config.queueUrl && !data.config.queueName) {
-            message.error('Queue URL or Queue Name is required for receive messages')
-            return
-          }
           requestBody.queueUrl = data.config.queueUrl
           requestBody.queueName = data.config.queueName
           requestBody.maxNumberOfMessages = data.config.maxNumberOfMessages || 10
@@ -240,10 +273,6 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
           
         case 'pollMessages':
           endpoint = '/api/aws/sqs/messages/poll'
-          if (!data.config.queueUrl && !data.config.queueName) {
-            message.error('Queue URL or Queue Name is required for poll messages')
-            return
-          }
           requestBody.queueUrl = data.config.queueUrl
           requestBody.queueName = data.config.queueName
           requestBody.maxNumberOfMessages = data.config.maxNumberOfMessages || 10
@@ -254,16 +283,21 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
           
         case 'getQueueAttributes':
           endpoint = '/api/aws/sqs/queue/attributes'
-          if (!data.config.queueUrl && !data.config.queueName) {
-            message.error('Queue URL or Queue Name is required for get queue attributes')
-            return
-          }
           requestBody.queueUrl = data.config.queueUrl
           requestBody.queueName = data.config.queueName
           break
           
         default:
           message.error('Unknown SQS operation')
+          if (onNodeExecute) {
+            onNodeExecute({
+              nodeId: id,
+              status: 'error' as const,
+              output: 'Unknown SQS operation',
+              duration: Date.now() - startTime,
+              timestamp: new Date().toISOString(),
+            })
+          }
           return
       }
       
@@ -335,13 +369,17 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
           const messages = result.messages || []
           output += `Polling completed!\n`
           output += `Total Messages Received: ${messages.length}\n`
+          output += `Max Requested Messages: ${result.maxRequestedMessages || 'N/A'}\n`
           output += `Poll Iterations: ${result.pollIterations}\n`
           output += `Poll Duration: ${result.pollDurationSeconds} seconds\n`
+          if (result.limitReached) {
+            output += `Status: Message limit reached (${result.maxRequestedMessages} messages)\n`
+          } else {
+            output += `Status: Polling completed within time limit\n`
+          }
           output += `Queue URL: ${result.queueUrl}\n\n`
           
           if (messages.length > 0) {
-            output += `Message Details:\n`
-            output += `${'='.repeat(50)}\n`
             messages.forEach((msg: any, index: number) => {
               output += `Message ${index + 1} (Poll ${msg.pollIteration}):\n`
               output += `  ID: ${msg.messageId}\n`
@@ -614,7 +652,7 @@ const SQSNode: React.FC<SQSNodeProps> = memo(({ data, selected, id, onConfigUpda
                     <Form.Item
                       label="Max Number of Messages"
                       name="maxNumberOfMessages"
-                      help="Maximum messages to receive (1-10)"
+                      help={operation === 'pollMessages' ? "Total maximum messages to receive across all polling iterations (1-10)" : "Maximum messages to receive (1-10)"}
                     >
                       <InputNumber min={1} max={10} placeholder="10" />
                     </Form.Item>
