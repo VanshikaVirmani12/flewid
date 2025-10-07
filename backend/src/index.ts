@@ -12,6 +12,7 @@ import testRoutes from './routes/test'
 import variableRoutes from './routes/variables'
 import transformRoutes from './routes/transform'
 import templateRoutes from './routes/templates'
+import aiRoutes from './routes/ai'
 import { errorHandler } from './middleware/errorHandler'
 import { logger } from './utils/logger'
 
@@ -55,6 +56,7 @@ app.use('/api/test', testRoutes)
 app.use('/api/variables', variableRoutes)
 app.use('/api/transform', transformRoutes)
 app.use('/api/templates', templateRoutes)
+app.use('/api/ai', aiRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {
